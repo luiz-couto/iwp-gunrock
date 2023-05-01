@@ -5,6 +5,7 @@ project(iwp-gunrock)
 enable_language(CUDA)
 
 add_subdirectory(externals/gunrock)
+add_subdirectory(externals/opencv)
 
 # ###################################################
 # ############# SET CXX & CUDA FLAGS ################
