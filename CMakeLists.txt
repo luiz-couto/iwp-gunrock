@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20.1)
 
-project(iwp-gunrock)
+project(iwp)
 
 enable_language(CUDA)
 
@@ -43,7 +43,7 @@ set(CUDA_DEBUG_FLAGS
     --device-debug # Device debug
 )
 
-add_executable(${PROJECT_NAME} iwp-gunrock.cu)
+add_library(${PROJECT_NAME} src/iwp.cu)
 
 find_package(OpenCV REQUIRED)
 
@@ -57,6 +57,22 @@ target_link_libraries(${PROJECT_NAME}
 get_target_property(ESSENTIALS_ARCHITECTURES essentials CUDA_ARCHITECTURES)
 
 set_target_properties(${PROJECT_NAME}
+    PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY bin
+    CUDA_ARCHITECTURES ${ESSENTIALS_ARCHITECTURES}
+)
+
+# ####################################################
+set(EXECUTABLE_NAME awesome)
+add_executable(${EXECUTABLE_NAME} iwp-gunrock.cu)
+
+target_link_libraries(${EXECUTABLE_NAME}
+    PRIVATE ${OpenCV_LIBS}
+    PRIVATE essentials
+    PRIVATE iwp
+)
+
+set_target_properties(${EXECUTABLE_NAME}
     PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY bin
     CUDA_ARCHITECTURES ${ESSENTIALS_ARCHITECTURES}

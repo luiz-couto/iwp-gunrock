@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <opencv2/core.hpp>
 #include <opencv2/imgcodecs.hpp>
+#include "src/iwp.hxx"
 
 namespace fs = std::filesystem;
 
@@ -25,7 +26,8 @@ int main()
         return 1;
     }
 
-    std::cout << img.size().width << std::endl;
+    int coord = iwp::get1DCoords(img, pixel_coords(1, 3));
+    std::cout << coord << std::endl;
 
     return 0;
 }

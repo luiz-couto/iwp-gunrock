@@ -1,7 +1,7 @@
 #pragma once
 #include <opencv2/core.hpp>
 #include <gunrock/formats/formats.hxx>
-// #include <gunrock/graph/build.hxx>
+// #include <gunrock/graph/graph.hxx>
 
 using vertex_t = int;
 using edge_t = int;
