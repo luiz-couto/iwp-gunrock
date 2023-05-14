@@ -34,7 +34,7 @@ std::vector<int> iwp::getPixelNeighbours(cv::Mat &img, pixel_coords coords)
     return neighbours;
 }
 
-csr_t iwp::convertImgToGraph(cv::Mat &img)
+graph_t iwp::convertImgToGraph(cv::Mat &img)
 {
     const int HAS_EDGE = 1;
 
@@ -66,12 +66,16 @@ csr_t iwp::convertImgToGraph(cv::Mat &img)
 
     // Build graph
 
-    // auto G = gunrock::graph::build::from_csr<memory_space_t::device, guntock::graph::view_t::csr>(
-    //     csr.number_of_rows,              // rows
-    //     csr.number_of_columns,           // columns
-    //     csr.number_of_nonzeros,          // nonzeros
-    //     csr.row_offsets.data().get(),    // row_offsets
-    //     csr.column_indices.data().get(), // column_indices
-    //     csr.nonzero_values.data().get()  // values
-    // );
+    std::cout << csr.number_of_rows << std::endl;
+
+    graph_t G = gunrock::graph::build::from_csr<gunrock::memory::memory_space_t::device, gunrock::graph::view_t::csr>(
+        csr.number_of_rows,              // rows
+        csr.number_of_columns,           // columns
+        csr.number_of_nonzeros,          // nonzeros
+        csr.row_offsets.data().get(),    // row_offsets
+        csr.column_indices.data().get(), // column_indices
+        csr.nonzero_values.data().get()  // values
+    );
+
+    return G;
 }

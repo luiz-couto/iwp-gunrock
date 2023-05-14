@@ -29,5 +29,9 @@ int main()
     int coord = iwp::get1DCoords(img, pixel_coords(1, 3));
     std::cout << coord << std::endl;
 
+    graph_t G = iwp::convertImgToGraph(img);
+
+    std::cout << G.get_number_of_vertices() << std::endl;
+
     return 0;
 }
