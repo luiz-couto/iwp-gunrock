@@ -26,7 +26,7 @@ std::vector<int> iwp::getPixelNeighbours(cv::Mat &img, pixel_coords coords)
         {
             if (!(i == coords.first && j == coords.second) && (i < img.size().width) && (j < img.size().height))
             {
-                neighbours.push_back(get1DCoords(img, pixel_coords(i, j))); // fix this
+                neighbours.push_back(get1DCoords(img, pixel_coords(i, j)));
             }
         }
     }
@@ -59,15 +59,12 @@ graph_t iwp::convertImgToGraph(cv::Mat &img)
         }
     }
 
-    csr_t csr(rowOffset.size(), columnIdx.size(), values.size());
+    csr_t csr(img.rows * img.cols, img.rows * img.cols, values.size());
     csr.row_offsets = rowOffset;
     csr.column_indices = columnIdx;
     csr.nonzero_values = values;
 
     // Build graph
-
-    std::cout << csr.number_of_rows << std::endl;
-
     graph_t G = gunrock::graph::build::from_csr<gunrock::memory::memory_space_t::device, gunrock::graph::view_t::csr>(
         csr.number_of_rows,              // rows
         csr.number_of_columns,           // columns
@@ -78,4 +75,9 @@ graph_t iwp::convertImgToGraph(cv::Mat &img)
     );
 
     return G;
+}
+
+float iwp::runMorphRec(cv::Mat &marker, cv::Mat &mask)
+{
+    graph_t markerGraph = convertImgToGraph(marker);
 }
