@@ -39,8 +39,11 @@ std::vector<int> iwp::getPixelNeighbours(cv::Mat &img, pixel_coords coords)
     return neighbours;
 }
 
-graph_t iwp::convertImgToGraph(cv::Mat &marker, cv::Mat &mask, vertex_t *markerValues, vertex_t *maskValues)
+template <typename vertex_t, typename edge_t, typename weight_t>
+auto iwp::convertImgToGraph(cv::Mat &marker, cv::Mat &mask, vertex_t *markerValues, vertex_t *maskValues)
 {
+    using csr_t = gunrock::format::csr_t<gunrock::memory_space_t::device, vertex_t, edge_t, weight_t>;
+
     const int HAS_EDGE = 1;
 
     if (marker.empty())
@@ -75,7 +78,7 @@ graph_t iwp::convertImgToGraph(cv::Mat &marker, cv::Mat &mask, vertex_t *markerV
     csr.nonzero_values = values;
 
     // Build graph
-    graph_t G = gunrock::graph::build::from_csr<gunrock::memory::memory_space_t::device, gunrock::graph::view_t::csr>(
+    auto G = gunrock::graph::build::from_csr<gunrock::memory::memory_space_t::device, gunrock::graph::view_t::csr>(
         csr.number_of_rows,              // rows
         csr.number_of_columns,           // columns
         csr.number_of_nonzeros,          // nonzeros
@@ -89,17 +92,21 @@ graph_t iwp::convertImgToGraph(cv::Mat &marker, cv::Mat &mask, vertex_t *markerV
 
 float iwp::runMorphRec(cv::Mat &marker, cv::Mat &mask)
 {
+    using vertex_t = int;
+    using edge_t = int;
+    using weight_t = float;
+
     int numVertices = marker.rows * marker.cols;
 
     thrust::device_vector<vertex_t> markerValues(numVertices);
     thrust::device_vector<vertex_t> maskValues(numVertices);
 
-    graph_t markerGraph = convertImgToGraph(marker,
-                                            mask,
-                                            markerValues.data().get(),
-                                            maskValues.data().get());
+    auto markerGraph = convertImgToGraph<vertex_t, edge_t, weight_t>(marker,
+                                                                     mask,
+                                                                     markerValues.data().get(),
+                                                                     maskValues.data().get());
 
-    float gpu_elapsed = run<graph_t>(markerGraph, maskValues.data().get(), markerValues.data().get());
+    float gpu_elapsed = run(markerGraph, maskValues.data().get(), markerValues.data().get());
 
     std::cout << "GPU Elapsed: " << gpu_elapsed << std::endl;
 }

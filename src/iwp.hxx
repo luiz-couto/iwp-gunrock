@@ -3,12 +3,6 @@
 #include <gunrock/algorithms/algorithms.hxx>
 #include <thrust/for_each.h>
 
-using vertex_t = int;
-using edge_t = int;
-using weight_t = float;
-
-using csr_t = gunrock::format::csr_t<gunrock::memory_space_t::device, vertex_t, edge_t, weight_t>;
-using graph_t = gunrock::graph::graph_csr_t<vertex_t, edge_t, weight_t>;
 using pixel_coords = std::pair<int, int>;
 
 template <typename S>
@@ -26,7 +20,10 @@ namespace iwp
     int get1DCoords(cv::Mat &img, pixel_coords coords);
     pixel_coords get2DCoords(int width, int coord);
     std::vector<int> getPixelNeighbours(cv::Mat &img, pixel_coords coords);
-    graph_t convertImgToGraph(cv::Mat &marker, cv::Mat &mask, vertex_t *markerValues, vertex_t *maskValues);
+
+    template <typename vertex_t, typename edge_t, typename weight_t>
+    auto convertImgToGraph(cv::Mat &marker, cv::Mat &mask, vertex_t *markerValues, vertex_t *maskValues);
+
     float runMorphRec(cv::Mat &marker, cv::Mat &mask);
 
     template <typename vertex_t>
@@ -69,6 +66,9 @@ namespace iwp
                   std::shared_ptr<gunrock::gcuda::multi_context_t> _context)
             : gunrock::enactor_t<problem_t>(_problem, _context) {}
 
+        using vertex_t = typename problem_t::vertex_t;
+        using edge_t = typename problem_t::edge_t;
+        using weight_t = typename problem_t::weight_t;
         using frontier_t = typename enactor_t<problem_t>::frontier_t;
 
         void prepare_frontier(frontier_t *f, gunrock::gcuda::multi_context_t &context) override
@@ -150,31 +150,26 @@ namespace iwp
                       new gunrock::gcuda::multi_context_t(0)) // Context
     )
     {
-        // // <user-defined>
+        // <user-defined>
 
-        // using vertex_t = typename graph_t::vertex_type;
+        using vertex_t = typename graph_t::vertex_type;
 
-        // using param_type = param_t<vertex_t>;
-        // using result_type = result_t<vertex_t>;
+        using param_type = param_t<vertex_t>;
+        using result_type = result_t<vertex_t>;
 
-        // param_type param(mask);
-        // result_type result(marker);
-        // // </user-defined>
+        param_type param(mask);
+        result_type result(marker);
+        // </user-defined>
 
-        // using problem_type = problem_t<graph_t, param_type, result_type>;
-        // using enactor_type = enactor_t<problem_type>;
+        using problem_type = problem_t<graph_t, param_type, result_type>;
+        using enactor_type = enactor_t<problem_type>;
 
-        // problem_type problem(G, param, result, context);
-        // problem.init();
-        // problem.reset();
+        problem_type problem(G, param, result, context);
+        problem.init();
+        problem.reset();
 
-        // enactor_type enactor(&problem, context);
-        // return enactor.enact();
-        // // </boiler-plate>
-    }
-
-    template <typename graph_t>
-    float run2(int uhul)
-    {
+        enactor_type enactor(&problem, context);
+        return enactor.enact();
+        // </boiler-plate>
     }
 }
