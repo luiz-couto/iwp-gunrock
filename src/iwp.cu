@@ -98,4 +98,8 @@ float iwp::runMorphRec(cv::Mat &marker, cv::Mat &mask)
                                             mask,
                                             markerValues.data().get(),
                                             maskValues.data().get());
+
+    float gpu_elapsed = run<graph_t>(markerGraph, maskValues.data().get(), markerValues.data().get());
+
+    std::cout << "GPU Elapsed: " << gpu_elapsed << std::endl;
 }

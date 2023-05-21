@@ -29,12 +29,14 @@ namespace iwp
     graph_t convertImgToGraph(cv::Mat &marker, cv::Mat &mask, vertex_t *markerValues, vertex_t *maskValues);
     float runMorphRec(cv::Mat &marker, cv::Mat &mask);
 
+    template <typename vertex_t>
     struct param_t
     {
         vertex_t *mask;
         param_t(vertex_t *_mask) : mask(_mask) {}
     };
 
+    template <typename vertex_t>
     struct result_t
     {
         vertex_t *marker;
@@ -138,4 +140,41 @@ namespace iwp
         }
 
     }; // struct enactor_t
+
+    template <typename graph_t>
+    float run(graph_t &G,
+              typename graph_t::vertex_type *mask,   // Parameter
+              typename graph_t::vertex_type *marker, // Output
+              std::shared_ptr<gunrock::gcuda::multi_context_t> context =
+                  std::shared_ptr<gunrock::gcuda::multi_context_t>(
+                      new gunrock::gcuda::multi_context_t(0)) // Context
+    )
+    {
+        // // <user-defined>
+
+        // using vertex_t = typename graph_t::vertex_type;
+
+        // using param_type = param_t<vertex_t>;
+        // using result_type = result_t<vertex_t>;
+
+        // param_type param(mask);
+        // result_type result(marker);
+        // // </user-defined>
+
+        // using problem_type = problem_t<graph_t, param_type, result_type>;
+        // using enactor_type = enactor_t<problem_type>;
+
+        // problem_type problem(G, param, result, context);
+        // problem.init();
+        // problem.reset();
+
+        // enactor_type enactor(&problem, context);
+        // return enactor.enact();
+        // // </boiler-plate>
+    }
+
+    template <typename graph_t>
+    float run2(int uhul)
+    {
+    }
 }
