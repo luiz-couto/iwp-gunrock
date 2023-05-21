@@ -35,9 +35,9 @@ int main()
     // std::cout << G.get_number_of_vertices() << std::endl;
 
     cv::Mat test = iwp::examples::genBigMarkerImg();
-    graph_t G = iwp::convertImgToGraph(test);
+    // graph_t G = iwp::convertImgToGraph(test);
 
-    std::cout << G.get_number_of_edges() << std::endl;
+    // std::cout << G.get_number_of_edges() << std::endl;
 
     return 0;
 }

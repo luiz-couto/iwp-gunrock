@@ -1,6 +1,7 @@
 #pragma once
 #include <opencv2/core.hpp>
 #include <gunrock/algorithms/algorithms.hxx>
+#include <thrust/for_each.h>
 
 using vertex_t = int;
 using edge_t = int;
@@ -23,20 +24,21 @@ std::ostream &operator<<(std::ostream &os, const std::vector<S> &vector)
 namespace iwp
 {
     int get1DCoords(cv::Mat &img, pixel_coords coords);
+    pixel_coords get2DCoords(int width, int coord);
     std::vector<int> getPixelNeighbours(cv::Mat &img, pixel_coords coords);
-    graph_t convertImgToGraph(cv::Mat &img);
+    graph_t convertImgToGraph(cv::Mat &marker, cv::Mat &mask, vertex_t *markerValues, vertex_t *maskValues);
     float runMorphRec(cv::Mat &marker, cv::Mat &mask);
 
     struct param_t
     {
-        cv::Mat &mask;
-        param_t(cv::Mat &_mask) : mask(_mask) {}
+        vertex_t *mask;
+        param_t(vertex_t *_mask) : mask(_mask) {}
     };
 
     struct result_t
     {
-        cv::Mat &result_img;
-        result_t(cv::Mat _result_img) : result_img(_result_img) {}
+        vertex_t *marker;
+        result_t(vertex_t *_marker) : marker(_marker) {}
     };
 
     template <typename graph_t, typename param_type, typename result_type>
@@ -53,10 +55,6 @@ namespace iwp
               param(_param),
               result(_result) {}
 
-        using vertex_t = typename graph_t::vertex_type;
-        using edge_t = typename graph_t::edge_type;
-        using weight_t = typename graph_t::weight_type;
-
         void init() override {}
 
         void reset() override {}
@@ -69,15 +67,70 @@ namespace iwp
                   std::shared_ptr<gunrock::gcuda::multi_context_t> _context)
             : gunrock::enactor_t<problem_t>(_problem, _context) {}
 
-        using vertex_t = typename problem_t::vertex_t;
-        using edge_t = typename problem_t::edge_t;
-        using weight_t = typename problem_t::weight_t;
         using frontier_t = typename enactor_t<problem_t>::frontier_t;
 
         void prepare_frontier(frontier_t *f, gunrock::gcuda::multi_context_t &context) override
         {
             auto P = this->get_problem();
-            f->push_back(P->param.single_source);
+            auto G = P->get_graph();
+            vertex_t *marker = P->result.marker;
+            vertex_t *mask = P->param.mask;
+
+            auto update_pixel = [&](vertex_t v)
+            {
+                auto startEdge = G.get_starting_edge(v);
+                auto numberNgbs = G.get_number_of_neighbors(v);
+                vertex_t greater = marker[v];
+
+                for (auto e = startEdge; e < startEdge + numberNgbs; e++)
+                {
+                    vertex_t ngb = G.get_destination_vertex(e);
+                    if (marker[ngb] > greater)
+                    {
+                        greater = marker[ngb];
+                    }
+                }
+
+                if (greater > mask[v])
+                {
+                    greater = mask[v];
+                }
+
+                marker[v] = greater;
+            };
+
+            for (vertex_t v = 0; v < G.get_number_of_vertices(); v++)
+            {
+                update_pixel(v);
+            };
+
+            for (vertex_t v = G.get_number_of_vertices(); v >= 0; v--)
+            {
+
+                update_pixel(v);
+                edge_t startEdge = G.get_starting_edge(v);
+                auto numberNgbs = G.get_number_of_neighbors(v);
+
+                for (edge_t e = startEdge; e < startEdge + numberNgbs; e++)
+                {
+                    vertex_t ngb = G.get_destination_vertex(e);
+                    if ((marker[ngb] < marker[v]) && (marker[ngb] < mask[ngb]))
+                    {
+                        f->push_back(ngb);
+                    }
+                }
+            }
+
+            // auto policy = context.get_context(0)->execution_policy();
+
+            // // For each (count from 0...#_of_Vertices), and perform
+            // // the operation called update_pixel.
+            // thrust::for_each(policy,
+            //                  thrust::make_counting_iterator<vertex_t>(0), // Begin: 0
+            //                  thrust::make_counting_iterator<vertex_t>(
+            //                      G.get_number_of_vertices()), // End: # of Vertices
+            //                  update_pixel                     // Unary operation
+            // );
         }
 
         void loop(gunrock::gcuda::multi_context_t &context) override

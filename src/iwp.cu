@@ -5,6 +5,11 @@ int iwp::get1DCoords(cv::Mat &img, pixel_coords coords)
     return (coords.second * img.size().width) + coords.first;
 }
 
+pixel_coords iwp::get2DCoords(int width, int coord)
+{
+    return pixel_coords(coord % width, coord / width);
+}
+
 std::vector<int> iwp::getPixelNeighbours(cv::Mat &img, pixel_coords coords)
 {
     std::vector<int> neighbours;
@@ -34,22 +39,27 @@ std::vector<int> iwp::getPixelNeighbours(cv::Mat &img, pixel_coords coords)
     return neighbours;
 }
 
-graph_t iwp::convertImgToGraph(cv::Mat &img)
+graph_t iwp::convertImgToGraph(cv::Mat &marker, cv::Mat &mask, vertex_t *markerValues, vertex_t *maskValues)
 {
     const int HAS_EDGE = 1;
 
-    if (img.empty())
+    if (marker.empty())
         throw "Unable to read image";
 
     std::vector<int> columnIdx, rowOffset, values;
     rowOffset.push_back(0);
 
-    for (int i = 0; i < img.rows; i++)
+    for (int i = 0; i < marker.rows; i++)
     {
-        for (int j = 0; j < img.cols; j++)
+        for (int j = 0; j < marker.cols; j++)
         {
             pixel_coords pixel = pixel_coords(i, j);
-            std::vector<int> neighbours = getPixelNeighbours(img, pixel);
+            int oneDPos = get1DCoords(marker, pixel);
+
+            markerValues[oneDPos] = marker.at<uchar>(i, j);
+            maskValues[oneDPos] = mask.at<uchar>(i, j);
+
+            std::vector<int> neighbours = getPixelNeighbours(marker, pixel);
             for (int neighbour : neighbours)
             {
                 columnIdx.push_back(neighbour);
@@ -59,7 +69,7 @@ graph_t iwp::convertImgToGraph(cv::Mat &img)
         }
     }
 
-    csr_t csr(img.rows * img.cols, img.rows * img.cols, values.size());
+    csr_t csr(marker.rows * marker.cols, marker.rows * marker.cols, values.size());
     csr.row_offsets = rowOffset;
     csr.column_indices = columnIdx;
     csr.nonzero_values = values;
@@ -79,5 +89,13 @@ graph_t iwp::convertImgToGraph(cv::Mat &img)
 
 float iwp::runMorphRec(cv::Mat &marker, cv::Mat &mask)
 {
-    graph_t markerGraph = convertImgToGraph(marker);
+    int numVertices = marker.rows * marker.cols;
+
+    thrust::device_vector<vertex_t> markerValues(numVertices);
+    thrust::device_vector<vertex_t> maskValues(numVertices);
+
+    graph_t markerGraph = convertImgToGraph(marker,
+                                            mask,
+                                            markerValues.data().get(),
+                                            maskValues.data().get());
 }
