@@ -40,42 +40,78 @@ std::vector<int> iwp::getPixelNeighbours(cv::Mat &img, pixel_coords coords)
 }
 
 template <typename vertex_t, typename edge_t, typename weight_t>
-auto iwp::convertImgToGraph(cv::Mat &marker, cv::Mat &mask, vertex_t *markerValues, vertex_t *maskValues)
+auto iwp::convertImgToGraph(cv::Mat &marker, cv::Mat &mask, thrust::device_vector<vertex_t> &markerValues, thrust::device_vector<vertex_t> &maskValues)
 {
     using csr_t = gunrock::format::csr_t<gunrock::memory_space_t::device, vertex_t, edge_t, weight_t>;
+
+    // Allocate space for vectors
+    gunrock::vector_t<edge_t, gunrock::memory_space_t::host> Ap;   // rowOffset
+    gunrock::vector_t<vertex_t, gunrock::memory_space_t::host> Aj; // columnIdx
+    gunrock::vector_t<weight_t, gunrock::memory_space_t::host> Ax; // values
+
+    int number_of_rows = 100;
+    int number_of_nonzeros = 684;
+
+    Ap.resize(number_of_rows + 1);
+    Aj.resize(number_of_nonzeros);
+    Ax.resize(number_of_nonzeros);
 
     const int HAS_EDGE = 1;
 
     if (marker.empty())
         throw "Unable to read image";
 
-    std::vector<int> columnIdx, rowOffset, values;
-    rowOffset.push_back(0);
+    Ap[0] = 0;
+
+    int apCount = 1;
+    int ajCount = 0;
+    int axCount = 0;
 
     for (int i = 0; i < marker.rows; i++)
     {
         for (int j = 0; j < marker.cols; j++)
         {
+
             pixel_coords pixel = pixel_coords(i, j);
             int oneDPos = get1DCoords(marker, pixel);
 
-            markerValues[oneDPos] = marker.at<uchar>(i, j);
-            maskValues[oneDPos] = mask.at<uchar>(i, j);
+            markerValues[oneDPos] = (int)marker.at<uchar>(i, j);
+            maskValues[oneDPos] = (int)mask.at<uchar>(i, j);
 
             std::vector<int> neighbours = getPixelNeighbours(marker, pixel);
             for (int neighbour : neighbours)
             {
-                columnIdx.push_back(neighbour);
-                values.push_back(HAS_EDGE);
+                Aj[ajCount] = neighbour;
+                Ax[axCount] = HAS_EDGE;
+                ajCount++;
+                axCount++;
+                // columnIdx.push_back(neighbour);
+                // values.push_back(HAS_EDGE);
             }
-            rowOffset.push_back(rowOffset.back() + neighbours.size());
+            Ap[apCount] = Ap[apCount - 1] + neighbours.size();
+            apCount++;
         }
     }
 
-    csr_t csr(marker.rows * marker.cols, marker.rows * marker.cols, values.size());
-    csr.row_offsets = rowOffset;
-    csr.column_indices = columnIdx;
-    csr.nonzero_values = values;
+    csr_t csr(marker.rows * marker.cols, marker.rows * marker.cols, number_of_nonzeros);
+
+    csr.row_offsets = Ap;
+    csr.column_indices = Aj;
+    csr.nonzero_values = Ax;
+
+    debug(csr.row_offsets[10]);
+    debug(csr.number_of_rows);
+    debug(csr.number_of_columns);
+    debug(csr.number_of_nonzeros);
+    debug(csr.row_offsets.size());
+    debug(csr.column_indices.size());
+    debug(csr.nonzero_values.size());
+
+    // gunrock::print::head(Ap, 20, "Ap");
+    // gunrock::print::head(Aj, 684, "Aj");
+    // gunrock::print::head(Ax, 20, "Ax");
+
+    // debug(values);
 
     // Build graph
     auto G = gunrock::graph::build::from_csr<gunrock::memory::memory_space_t::device, gunrock::graph::view_t::csr>(
@@ -87,6 +123,12 @@ auto iwp::convertImgToGraph(cv::Mat &marker, cv::Mat &mask, vertex_t *markerValu
         csr.nonzero_values.data().get()  // values
     );
 
+    gunrock::print::head(markerValues, 20, "Marker");
+
+    float gpu_elapsed = run(G, maskValues.data().get(), markerValues.data().get());
+
+    gunrock::print::head(markerValues, 20, "Marker");
+
     return G;
 }
 
@@ -94,7 +136,7 @@ float iwp::runMorphRec(cv::Mat &marker, cv::Mat &mask)
 {
     using vertex_t = int;
     using edge_t = int;
-    using weight_t = float;
+    using weight_t = int;
 
     int numVertices = marker.rows * marker.cols;
 
@@ -103,10 +145,12 @@ float iwp::runMorphRec(cv::Mat &marker, cv::Mat &mask)
 
     auto markerGraph = convertImgToGraph<vertex_t, edge_t, weight_t>(marker,
                                                                      mask,
-                                                                     markerValues.data().get(),
-                                                                     maskValues.data().get());
+                                                                     markerValues,
+                                                                     maskValues);
 
-    float gpu_elapsed = run(markerGraph, maskValues.data().get(), markerValues.data().get());
+    // float gpu_elapsed = run(markerGraph, maskValues.data().get(), markerValues.data().get());
 
-    std::cout << "GPU Elapsed: " << gpu_elapsed << std::endl;
+    // gunrock::print::head(markerValues, 20, "Marker");
+
+    // std::cout << "GPU Elapsed: " << gpu_elapsed << std::endl;
 }

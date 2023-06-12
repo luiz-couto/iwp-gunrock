@@ -34,10 +34,13 @@ int main()
 
     // std::cout << G.get_number_of_vertices() << std::endl;
 
-    cv::Mat test = iwp::examples::genBigMarkerImg();
+    cv::Mat marker = iwp::examples::genBigMarkerImg();
+    cv::Mat mask = iwp::examples::genBigMaskImg();
     // graph_t G = iwp::convertImgToGraph(test);
 
     // std::cout << G.get_number_of_edges() << std::endl;
+
+    iwp::runMorphRec(marker, mask);
 
     return 0;
 }

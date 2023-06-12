@@ -105,7 +105,6 @@ namespace iwp
             mask.at<uchar>(1, 8) = 11;
             mask.at<uchar>(3, 8) = 11;
 
-            std::cout << mask << std::endl;
             return mask;
         }
 

@@ -1,7 +1,14 @@
 #pragma once
 #include <opencv2/core.hpp>
 #include <gunrock/algorithms/algorithms.hxx>
+#include <gunrock/container/vector.hxx>
 #include <thrust/for_each.h>
+#include <cstdio>
+
+#define debug(x) std::cout << #x << " = " << x << std::endl;
+#define debug2(x, y) std::cout << #x << " = " << x << " --- " << #y << " = " << y << "\n";
+#define debugLine(i) std::cout << "PASSOU AQUIIII" \
+                               << " --- " << i << std::endl;
 
 using pixel_coords = std::pair<int, int>;
 
@@ -73,12 +80,18 @@ namespace iwp
 
         void prepare_frontier(frontier_t *f, gunrock::gcuda::multi_context_t &context) override
         {
+
+            debugLine("Prepare Frontier");
+
             auto P = this->get_problem();
             auto G = P->get_graph();
             vertex_t *marker = P->result.marker;
             vertex_t *mask = P->param.mask;
 
-            auto update_pixel = [&](vertex_t v)
+            thrust::device_vector<vertex_t> device_frontier(100, -1);
+            vertex_t *f_pointer = device_frontier.data().get();
+
+            auto update_pixel = [G, marker, mask] __device__(vertex_t const &v)
             {
                 auto startEdge = G.get_starting_edge(v);
                 auto numberNgbs = G.get_number_of_neighbors(v);
@@ -88,28 +101,19 @@ namespace iwp
                 {
                     vertex_t ngb = G.get_destination_vertex(e);
                     if (marker[ngb] > greater)
-                    {
                         greater = marker[ngb];
-                    }
                 }
 
                 if (greater > mask[v])
-                {
                     greater = mask[v];
-                }
 
                 marker[v] = greater;
             };
 
-            for (vertex_t v = 0; v < G.get_number_of_vertices(); v++)
+            auto fill_frontier = [G, marker, mask, f_pointer, update_pixel] __device__(vertex_t const &v)
             {
                 update_pixel(v);
-            };
 
-            for (vertex_t v = G.get_number_of_vertices(); v >= 0; v--)
-            {
-
-                update_pixel(v);
                 edge_t startEdge = G.get_starting_edge(v);
                 auto numberNgbs = G.get_number_of_neighbors(v);
 
@@ -118,21 +122,36 @@ namespace iwp
                     vertex_t ngb = G.get_destination_vertex(e);
                     if ((marker[ngb] < marker[v]) && (marker[ngb] < mask[ngb]))
                     {
-                        f->push_back(ngb);
+                        f_pointer[v] = ngb;
                     }
                 }
+            };
+
+            auto policy = context.get_context(0)->execution_policy();
+
+            // For each (count from 0...#_of_Vertices), and perform
+            // the operation called update_pixel.
+            thrust::for_each(policy,
+                             thrust::make_counting_iterator<vertex_t>(0),                          // Begin: 0
+                             thrust::make_counting_iterator<vertex_t>(G.get_number_of_vertices()), // End: # of Vertices
+                             update_pixel                                                          // Unary operation
+            );
+
+            // DISCOVER A WAY TO DO IT IN A ANTI-RASTER MANNER
+            thrust::for_each(policy,
+                             thrust::make_counting_iterator<vertex_t>(0),                          // Begin: 0
+                             thrust::make_counting_iterator<vertex_t>(G.get_number_of_vertices()), // End: # of Vertices
+                             fill_frontier                                                         // Unary operation
+            );
+
+            thrust::host_vector<vertex_t> host_frontier = device_frontier;
+            for (int i = 0; i < 100; i++)
+            {
+                if (host_frontier[i] != -1)
+                    f->push_back(host_frontier[i]);
             }
 
-            // auto policy = context.get_context(0)->execution_policy();
-
-            // // For each (count from 0...#_of_Vertices), and perform
-            // // the operation called update_pixel.
-            // thrust::for_each(policy,
-            //                  thrust::make_counting_iterator<vertex_t>(0), // Begin: 0
-            //                  thrust::make_counting_iterator<vertex_t>(
-            //                      G.get_number_of_vertices()), // End: # of Vertices
-            //                  update_pixel                     // Unary operation
-            // );
+            f->print();
         }
 
         void loop(gunrock::gcuda::multi_context_t &context) override
