@@ -4,6 +4,7 @@
 #include <gunrock/container/vector.hxx>
 #include <thrust/for_each.h>
 #include <cstdio>
+#include <map>
 
 #define debug(x) std::cout << #x << " = " << x << std::endl;
 #define debug2(x, y) std::cout << #x << " = " << x << " --- " << #y << " = " << y << "\n";
@@ -145,10 +146,14 @@ namespace iwp
             );
 
             thrust::host_vector<vertex_t> host_frontier = device_frontier;
+            std::map<int, bool> entered_pixels;
             for (int i = 0; i < 100; i++)
             {
-                if (host_frontier[i] != -1)
+                if (host_frontier[i] != -1 && entered_pixels.find(host_frontier[i]) == entered_pixels.end())
+                {
                     f->push_back(host_frontier[i]);
+                    entered_pixels[host_frontier[i]] = true;
+                }
             }
 
             f->print();
