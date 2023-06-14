@@ -72,11 +72,11 @@ auto iwp::convertImgToGraph(cv::Mat &marker, cv::Mat &mask, thrust::device_vecto
         for (int j = 0; j < marker.cols; j++)
         {
 
-            pixel_coords pixel = pixel_coords(i, j);
+            pixel_coords pixel = pixel_coords(j, i);
             int oneDPos = get1DCoords(marker, pixel);
 
-            markerValues[oneDPos] = (int)marker.at<uchar>(i, j);
-            maskValues[oneDPos] = (int)mask.at<uchar>(i, j);
+            markerValues[oneDPos] = (int)marker.at<uchar>(j, i);
+            maskValues[oneDPos] = (int)mask.at<uchar>(j, i);
 
             std::vector<int> neighbours = getPixelNeighbours(marker, pixel);
             for (int neighbour : neighbours)
@@ -123,11 +123,11 @@ auto iwp::convertImgToGraph(cv::Mat &marker, cv::Mat &mask, thrust::device_vecto
         csr.nonzero_values.data().get()  // values
     );
 
-    gunrock::print::head(markerValues, 20, "Marker");
+    gunrock::print::head(markerValues, 100, "Marker");
 
-    float gpu_elapsed = run(G, maskValues.data().get(), markerValues.data().get());
+    float gpu_elapsed = run(G, maskValues.data().get(), marker.cols, marker.rows, markerValues.data().get());
 
-    gunrock::print::head(markerValues, 20, "Marker");
+    gunrock::print::head(markerValues, 100, "Marker");
 
     return G;
 }

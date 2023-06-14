@@ -5,6 +5,7 @@
 #include <thrust/for_each.h>
 #include <cstdio>
 #include <map>
+#include <algorithm> // std::min
 
 #define debug(x) std::cout << #x << " = " << x << std::endl;
 #define debug2(x, y) std::cout << #x << " = " << x << " --- " << #y << " = " << y << "\n";
@@ -38,7 +39,9 @@ namespace iwp
     struct param_t
     {
         vertex_t *mask;
-        param_t(vertex_t *_mask) : mask(_mask) {}
+        int img_width;
+        int img_height;
+        param_t(vertex_t *_mask, int _img_width, int _img_height) : mask(_mask), img_width(_img_width), img_height(_img_height) {}
     };
 
     template <typename vertex_t>
@@ -89,11 +92,15 @@ namespace iwp
             vertex_t *marker = P->result.marker;
             vertex_t *mask = P->param.mask;
 
+            int width = P->param.img_width;
+            int height = P->param.img_height;
+
             thrust::device_vector<vertex_t> device_frontier(100, -1);
             vertex_t *f_pointer = device_frontier.data().get();
 
-            auto update_pixel = [G, marker, mask] __device__(vertex_t const &v)
+            auto update_pixel = [G, marker, mask, width, height] __device__(vertex_t const &v)
             {
+                // printf("v: %d, ", v);
                 auto startEdge = G.get_starting_edge(v);
                 auto numberNgbs = G.get_number_of_neighbors(v);
                 vertex_t greater = marker[v];
@@ -101,6 +108,17 @@ namespace iwp
                 for (auto e = startEdge; e < startEdge + numberNgbs; e++)
                 {
                     vertex_t ngb = G.get_destination_vertex(e);
+
+                    // if (v == 5)
+                    // {
+                    //     printf("ngb: %d, ", ngb);
+                    // }
+
+                    // if (v == 5 && ngb == 4)
+                    // {
+                    //     printf("marker[ngb]: %d, ", marker[ngb]);
+                    // }
+
                     if (marker[ngb] > greater)
                         greater = marker[ngb];
                 }
@@ -108,22 +126,41 @@ namespace iwp
                 if (greater > mask[v])
                     greater = mask[v];
 
-                marker[v] = greater;
+                // printf("greater: %d, ", greater);
+                gunrock::math::atomic::exch(&marker[v], greater);
+
+                // marker[v] = greater;
             };
 
-            auto fill_frontier = [G, marker, mask, f_pointer, update_pixel] __device__(vertex_t const &v)
+            auto raster_scan = [G, marker, mask, width, height, update_pixel] __device__(vertex_t const &x)
             {
-                update_pixel(v);
-
-                edge_t startEdge = G.get_starting_edge(v);
-                auto numberNgbs = G.get_number_of_neighbors(v);
-
-                for (edge_t e = startEdge; e < startEdge + numberNgbs; e++)
+                for (int v = 0; v < width * height; v++)
                 {
-                    vertex_t ngb = G.get_destination_vertex(e);
-                    if ((marker[ngb] < marker[v]) && (marker[ngb] < mask[ngb]))
+                    update_pixel(v);
+                }
+            };
+
+            auto fill_frontier = [G, marker, mask, f_pointer, update_pixel, width, height] __device__(vertex_t const &x)
+            {
+                for (int v = width * height - 1; v >= 0; v--)
+                {
+                    update_pixel(v);
+
+                    edge_t startEdge = G.get_starting_edge(v);
+                    auto numberNgbs = G.get_number_of_neighbors(v);
+
+                    for (edge_t e = startEdge; e < startEdge + numberNgbs; e++)
                     {
-                        f_pointer[v] = ngb;
+                        vertex_t ngb = G.get_destination_vertex(e);
+                        if ((marker[ngb] < marker[v]) && (marker[ngb] < mask[ngb]))
+                        {
+                            f_pointer[v] = ngb;
+                        }
+
+                        // if (marker[v] != 8)
+                        // {
+                        //     f_pointer[v] = ngb;
+                        // }
                     }
                 }
             };
@@ -133,16 +170,16 @@ namespace iwp
             // For each (count from 0...#_of_Vertices), and perform
             // the operation called update_pixel.
             thrust::for_each(policy,
-                             thrust::make_counting_iterator<vertex_t>(0),                          // Begin: 0
-                             thrust::make_counting_iterator<vertex_t>(G.get_number_of_vertices()), // End: # of Vertices
-                             update_pixel                                                          // Unary operation
+                             thrust::make_counting_iterator<vertex_t>(0), // Begin: 0
+                             thrust::make_counting_iterator<vertex_t>(1), // End: # of Vertices
+                             raster_scan                                  // Unary operation
             );
 
             // DISCOVER A WAY TO DO IT IN A ANTI-RASTER MANNER
             thrust::for_each(policy,
-                             thrust::make_counting_iterator<vertex_t>(0),                          // Begin: 0
-                             thrust::make_counting_iterator<vertex_t>(G.get_number_of_vertices()), // End: # of Vertices
-                             fill_frontier                                                         // Unary operation
+                             thrust::make_counting_iterator<vertex_t>(0), // Begin: 0
+                             thrust::make_counting_iterator<vertex_t>(1), // End: # of Vertices
+                             fill_frontier                                // Unary operation
             );
 
             thrust::host_vector<vertex_t> host_frontier = device_frontier;
@@ -161,6 +198,31 @@ namespace iwp
 
         void loop(gunrock::gcuda::multi_context_t &context) override
         {
+            auto E = this->get_enactor();
+            auto P = this->get_problem();
+            auto G = P->get_graph();
+
+            vertex_t *marker = P->result.marker;
+            vertex_t *mask = P->param.mask;
+
+            // auto iteration = this->iteration;
+
+            auto advance_op = [marker, mask] __host__ __device__(
+                                  vertex_t const &source,   // ... source
+                                  vertex_t const &neighbor, // neighbor
+                                  edge_t const &edge,       // edge
+                                  weight_t const &weight    // weight (tuple).
+                                  ) -> bool
+            {
+                if (marker[neighbor] < marker[source] && mask[neighbor] != marker[neighbor])
+                {
+                    marker[neighbor] = std::min(marker[source], mask[neighbor]);
+                    return true;
+                }
+                return false;
+            };
+
+            gunrock::operators::advance::execute<gunrock::operators::load_balance_t::block_mapped>(G, E, advance_op, context);
         }
 
     }; // struct enactor_t
@@ -168,6 +230,8 @@ namespace iwp
     template <typename graph_t>
     float run(graph_t &G,
               typename graph_t::vertex_type *mask,   // Parameter
+              const int img_width,                   // Parameter
+              const int img_height,                  // Parameter
               typename graph_t::vertex_type *marker, // Output
               std::shared_ptr<gunrock::gcuda::multi_context_t> context =
                   std::shared_ptr<gunrock::gcuda::multi_context_t>(
@@ -181,7 +245,7 @@ namespace iwp
         using param_type = param_t<vertex_t>;
         using result_type = result_t<vertex_t>;
 
-        param_type param(mask);
+        param_type param(mask, img_width, img_height);
         result_type result(marker);
         // </user-defined>
 
