@@ -49,23 +49,12 @@ auto iwp::convertImgToGraph(cv::Mat &marker, cv::Mat &mask, thrust::device_vecto
     gunrock::vector_t<vertex_t, gunrock::memory_space_t::host> Aj; // columnIdx
     gunrock::vector_t<weight_t, gunrock::memory_space_t::host> Ax; // values
 
-    int number_of_rows = 100;
-    int number_of_nonzeros = 684;
-
-    Ap.resize(number_of_rows + 1);
-    Aj.resize(number_of_nonzeros);
-    Ax.resize(number_of_nonzeros);
-
     const int HAS_EDGE = 1;
 
     if (marker.empty())
         throw "Unable to read image";
 
-    Ap[0] = 0;
-
-    int apCount = 1;
-    int ajCount = 0;
-    int axCount = 0;
+    Ap.push_back(0);
 
     for (int i = 0; i < marker.rows; i++)
     {
@@ -81,19 +70,15 @@ auto iwp::convertImgToGraph(cv::Mat &marker, cv::Mat &mask, thrust::device_vecto
             std::vector<int> neighbours = getPixelNeighbours(marker, pixel);
             for (int neighbour : neighbours)
             {
-                Aj[ajCount] = neighbour;
-                Ax[axCount] = HAS_EDGE;
-                ajCount++;
-                axCount++;
-                // columnIdx.push_back(neighbour);
-                // values.push_back(HAS_EDGE);
+                Aj.push_back(neighbour);
+                Ax.push_back(HAS_EDGE);
             }
-            Ap[apCount] = Ap[apCount - 1] + neighbours.size();
-            apCount++;
+
+            Ap.push_back(Ap[Ap.size() - 1] + neighbours.size());
         }
     }
 
-    csr_t csr(marker.rows * marker.cols, marker.rows * marker.cols, number_of_nonzeros);
+    csr_t csr(marker.rows * marker.cols, marker.rows * marker.cols, Ax.size());
 
     csr.row_offsets = Ap;
     csr.column_indices = Aj;
@@ -128,8 +113,26 @@ auto iwp::convertImgToGraph(cv::Mat &marker, cv::Mat &mask, thrust::device_vecto
     float gpu_elapsed = run(G, maskValues.data().get(), marker.cols, marker.rows, markerValues.data().get());
 
     gunrock::print::head(markerValues, 100, "Marker");
+    debug(gpu_elapsed);
+
+    saveMarkerImg(markerValues, marker.cols, marker.rows);
 
     return G;
+}
+
+template <typename vertex_t>
+void iwp::saveMarkerImg(thrust::device_vector<vertex_t> &markerValues, int img_width, int img_height)
+{
+    thrust::host_vector<vertex_t> hostMarker = markerValues;
+    cv::Mat marker = cv::Mat(img_width, img_height, CV_8UC1, 8);
+
+    for (int i = 0; i < hostMarker.size(); i++)
+    {
+        pixel_coords p = get2DCoords(img_width, i);
+        marker.at<uchar>(p.first, p.second) = hostMarker[i];
+    }
+
+    cv::imwrite("final_marker.png", marker);
 }
 
 float iwp::runMorphRec(cv::Mat &marker, cv::Mat &mask)

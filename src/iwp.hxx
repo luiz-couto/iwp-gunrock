@@ -1,5 +1,6 @@
 #pragma once
 #include <opencv2/core.hpp>
+#include <opencv2/imgcodecs.hpp>
 #include <gunrock/algorithms/algorithms.hxx>
 #include <gunrock/container/vector.hxx>
 #include <thrust/for_each.h>
@@ -29,6 +30,9 @@ namespace iwp
     int get1DCoords(cv::Mat &img, pixel_coords coords);
     pixel_coords get2DCoords(int width, int coord);
     std::vector<int> getPixelNeighbours(cv::Mat &img, pixel_coords coords);
+
+    template <typename vertex_t>
+    void saveMarkerImg(thrust::device_vector<vertex_t> &markerValues, int img_width, int img_height);
 
     template <typename vertex_t, typename edge_t, typename weight_t>
     auto convertImgToGraph(cv::Mat &marker, cv::Mat &mask, vertex_t *markerValues, vertex_t *maskValues);
@@ -95,7 +99,7 @@ namespace iwp
             int width = P->param.img_width;
             int height = P->param.img_height;
 
-            thrust::device_vector<vertex_t> device_frontier(100, -1);
+            thrust::device_vector<vertex_t> device_frontier(G.get_number_of_vertices(), -1);
             vertex_t *f_pointer = device_frontier.data().get();
 
             auto update_pixel = [G, marker, mask, width, height] __device__(vertex_t const &v)
@@ -109,16 +113,6 @@ namespace iwp
                 {
                     vertex_t ngb = G.get_destination_vertex(e);
 
-                    // if (v == 5)
-                    // {
-                    //     printf("ngb: %d, ", ngb);
-                    // }
-
-                    // if (v == 5 && ngb == 4)
-                    // {
-                    //     printf("marker[ngb]: %d, ", marker[ngb]);
-                    // }
-
                     if (marker[ngb] > greater)
                         greater = marker[ngb];
                 }
@@ -126,10 +120,7 @@ namespace iwp
                 if (greater > mask[v])
                     greater = mask[v];
 
-                // printf("greater: %d, ", greater);
                 gunrock::math::atomic::exch(&marker[v], greater);
-
-                // marker[v] = greater;
             };
 
             auto raster_scan = [G, marker, mask, width, height, update_pixel] __device__(vertex_t const &x)
@@ -156,11 +147,6 @@ namespace iwp
                         {
                             f_pointer[v] = ngb;
                         }
-
-                        // if (marker[v] != 8)
-                        // {
-                        //     f_pointer[v] = ngb;
-                        // }
                     }
                 }
             };
@@ -184,7 +170,7 @@ namespace iwp
 
             thrust::host_vector<vertex_t> host_frontier = device_frontier;
             std::map<int, bool> entered_pixels;
-            for (int i = 0; i < 100; i++)
+            for (int i = 0; i < G.get_number_of_vertices(); i++)
             {
                 if (host_frontier[i] != -1 && entered_pixels.find(host_frontier[i]) == entered_pixels.end())
                 {
@@ -193,7 +179,7 @@ namespace iwp
                 }
             }
 
-            f->print();
+            // f->print();
         }
 
         void loop(gunrock::gcuda::multi_context_t &context) override
@@ -216,7 +202,8 @@ namespace iwp
             {
                 if (marker[neighbor] < marker[source] && mask[neighbor] != marker[neighbor])
                 {
-                    marker[neighbor] = std::min(marker[source], mask[neighbor]);
+                    vertex_t min = std::min(marker[source], mask[neighbor]);
+                    gunrock::math::atomic::exch(&marker[neighbor], min);
                     return true;
                 }
                 return false;
