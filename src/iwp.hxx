@@ -145,7 +145,8 @@ namespace iwp
                         vertex_t ngb = G.get_destination_vertex(e);
                         if ((marker[ngb] < marker[v]) && (marker[ngb] < mask[ngb]))
                         {
-                            f_pointer[v] = ngb;
+                            // printf("v: %d, ngb: %d", v, ngb);
+                            f_pointer[ngb] = 1;
                         }
                     }
                 }
@@ -161,6 +162,8 @@ namespace iwp
                              raster_scan                                  // Unary operation
             );
 
+            // cudaDeviceSynchronize();
+
             // DISCOVER A WAY TO DO IT IN A ANTI-RASTER MANNER
             thrust::for_each(policy,
                              thrust::make_counting_iterator<vertex_t>(0), // Begin: 0
@@ -168,18 +171,22 @@ namespace iwp
                              fill_frontier                                // Unary operation
             );
 
+            cudaDeviceSynchronize();
+
             thrust::host_vector<vertex_t> host_frontier = device_frontier;
             std::map<int, bool> entered_pixels;
+            debug(host_frontier[359575]);
             for (int i = 0; i < G.get_number_of_vertices(); i++)
             {
-                if (host_frontier[i] != -1 && entered_pixels.find(host_frontier[i]) == entered_pixels.end())
+                // debug(host_frontier[i]);
+                if (host_frontier[i] != -1)
                 {
-                    f->push_back(host_frontier[i]);
-                    entered_pixels[host_frontier[i]] = true;
+                    f->push_back(i);
+                    // entered_pixels[i] = true;
                 }
             }
 
-            // f->print();
+            debug(f->get_number_of_elements());
         }
 
         void loop(gunrock::gcuda::multi_context_t &context) override
