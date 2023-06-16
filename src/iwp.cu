@@ -10,6 +10,11 @@ pixel_coords iwp::get2DCoords(int width, int coord)
     return pixel_coords(coord % width, coord / width);
 }
 
+int iwp::getNumberOfEdges(int width, int height)
+{
+    return (width * height * 8) - ((4 * 5) + ((width - 2) * 3 * 2) + ((height - 2) * 3 * 2));
+}
+
 std::vector<int> iwp::getPixelNeighbours(cv::Mat &img, pixel_coords coords)
 {
     std::vector<int> neighbours;
@@ -42,19 +47,27 @@ std::vector<int> iwp::getPixelNeighbours(cv::Mat &img, pixel_coords coords)
 template <typename vertex_t, typename edge_t, typename weight_t>
 auto iwp::convertImgToGraph(cv::Mat &marker, cv::Mat &mask, thrust::device_vector<vertex_t> &markerValues, thrust::device_vector<vertex_t> &maskValues)
 {
+    debugLine("ConvertImgToGraph");
     using csr_t = gunrock::format::csr_t<gunrock::memory_space_t::device, vertex_t, edge_t, weight_t>;
 
+    int num_edges = getNumberOfEdges(marker.cols, marker.rows);
+    debug(num_edges);
+
     // Allocate space for vectors
-    gunrock::vector_t<edge_t, gunrock::memory_space_t::host> Ap;   // rowOffset
-    gunrock::vector_t<vertex_t, gunrock::memory_space_t::host> Aj; // columnIdx
-    gunrock::vector_t<weight_t, gunrock::memory_space_t::host> Ax; // values
+    gunrock::vector_t<edge_t, gunrock::memory_space_t::host> Ap(marker.rows * marker.cols + 1); // rowOffset
+    gunrock::vector_t<vertex_t, gunrock::memory_space_t::host> Aj(num_edges);                   // columnIdx
+
+    std::vector<vertex_t> marker_host(marker.rows * marker.cols);
+    std::vector<vertex_t> mask_host(marker.rows * marker.cols);
 
     const int HAS_EDGE = 1;
+    int apCount = 1;
+    int myCount = 0;
 
     if (marker.empty())
         throw "Unable to read image";
 
-    Ap.push_back(0);
+    Ap[0] = 0;
 
     for (int i = 0; i < marker.rows; i++)
     {
@@ -64,19 +77,30 @@ auto iwp::convertImgToGraph(cv::Mat &marker, cv::Mat &mask, thrust::device_vecto
             pixel_coords pixel = pixel_coords(j, i);
             int oneDPos = get1DCoords(marker, pixel);
 
-            markerValues[oneDPos] = (int)marker.at<uchar>(j, i);
-            maskValues[oneDPos] = (int)mask.at<uchar>(j, i);
+            marker_host[oneDPos] = (int)marker.at<uchar>(j, i);
+            mask_host[oneDPos] = (int)mask.at<uchar>(j, i);
+
+            // markerValues[oneDPos] = (int)marker.at<uchar>(j, i);
+            // maskValues[oneDPos] = (int)mask.at<uchar>(j, i);
 
             std::vector<int> neighbours = getPixelNeighbours(marker, pixel);
             for (int neighbour : neighbours)
             {
-                Aj.push_back(neighbour);
-                Ax.push_back(HAS_EDGE);
+                Aj[myCount] = neighbour;
+                myCount++;
+                // Aj.push_back(neighbour);
+                // Ax.push_back(HAS_EDGE);
             }
 
-            Ap.push_back(Ap[Ap.size() - 1] + neighbours.size());
+            Ap[apCount] = Ap[apCount - 1] + neighbours.size();
+            apCount++;
         }
     }
+
+    debug(myCount);
+    gunrock::vector_t<weight_t, gunrock::memory_space_t::host> Ax(num_edges, HAS_EDGE); // values
+
+    debugLine("After For");
 
     csr_t csr(marker.rows * marker.cols, marker.rows * marker.cols, Ax.size());
 
@@ -84,7 +108,6 @@ auto iwp::convertImgToGraph(cv::Mat &marker, cv::Mat &mask, thrust::device_vecto
     csr.column_indices = Aj;
     csr.nonzero_values = Ax;
 
-    debug(csr.row_offsets[10]);
     debug(csr.number_of_rows);
     debug(csr.number_of_columns);
     debug(csr.number_of_nonzeros);
@@ -97,6 +120,11 @@ auto iwp::convertImgToGraph(cv::Mat &marker, cv::Mat &mask, thrust::device_vecto
     // gunrock::print::head(Ax, 20, "Ax");
 
     // debug(values);
+
+    thrust::copy(marker_host.begin(), marker_host.end(), markerValues.begin());
+    thrust::copy(mask_host.begin(), mask_host.end(), maskValues.begin());
+
+    debugLine("After Img Attrib");
 
     // Build graph
     auto G = gunrock::graph::build::from_csr<gunrock::memory::memory_space_t::device, gunrock::graph::view_t::csr>(
@@ -112,7 +140,7 @@ auto iwp::convertImgToGraph(cv::Mat &marker, cv::Mat &mask, thrust::device_vecto
 
     float gpu_elapsed = run(G, maskValues.data().get(), marker.cols, marker.rows, markerValues.data().get());
 
-    gunrock::print::head(markerValues, 100, "Marker");
+    // gunrock::print::head(markerValues, 100, "Marker");
     debug(gpu_elapsed);
 
     saveMarkerImg(markerValues, marker.cols, marker.rows);

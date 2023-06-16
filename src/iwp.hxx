@@ -30,6 +30,7 @@ namespace iwp
     int get1DCoords(cv::Mat &img, pixel_coords coords);
     pixel_coords get2DCoords(int width, int coord);
     std::vector<int> getPixelNeighbours(cv::Mat &img, pixel_coords coords);
+    int getNumberOfEdges(int width, int height);
 
     template <typename vertex_t>
     void saveMarkerImg(thrust::device_vector<vertex_t> &markerValues, int img_width, int img_height);
@@ -99,8 +100,12 @@ namespace iwp
             int width = P->param.img_width;
             int height = P->param.img_height;
 
+            debugLine("AAAAAAAAA");
+
             thrust::device_vector<vertex_t> device_frontier(G.get_number_of_vertices(), -1);
             vertex_t *f_pointer = device_frontier.data().get();
+
+            debugLine("BBBBBBB");
 
             auto update_pixel = [G, marker, mask, width, height] __device__(vertex_t const &v)
             {
@@ -173,16 +178,18 @@ namespace iwp
 
             cudaDeviceSynchronize();
 
-            thrust::host_vector<vertex_t> host_frontier = device_frontier;
+            debugLine("UHUUUULL");
+
+            thrust::host_vector<vertex_t> host_frontier(G.get_number_of_vertices());
+            thrust::copy(device_frontier.begin(), device_frontier.end(), host_frontier.begin());
+            // thrust::host_vector<vertex_t> host_frontier = device_frontier;
             std::map<int, bool> entered_pixels;
-            debug(host_frontier[359575]);
+            // debug(host_frontier[359575]);
             for (int i = 0; i < G.get_number_of_vertices(); i++)
             {
-                // debug(host_frontier[i]);
                 if (host_frontier[i] != -1)
                 {
                     f->push_back(i);
-                    // entered_pixels[i] = true;
                 }
             }
 
