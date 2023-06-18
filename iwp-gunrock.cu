@@ -4,8 +4,8 @@
 #include <filesystem>
 #include <opencv2/core.hpp>
 #include <opencv2/imgcodecs.hpp>
-// #include "src/iwp.hxx"
-// #include "src/examples.hxx"
+#include "src/iwp.hxx"
+#include "src/examples.hxx"
 #include "opencv2/imgproc/imgproc.hpp"
 #include <thrust/host_vector.h>
 #include <thrust/device_vector.h>
@@ -113,7 +113,7 @@ void antiRasterScan(cv::Mat &marker, cv::Mat &mask)
 
                 if (n_value < p_value && n_value < m_n_value)
                 {
-                    fifo.push_back(p_value); // wrong, need to be coord of p
+                    fifo.push_back(get1DCoords(marker, pixel_coords(j, i)));
                 }
             }
         }
@@ -132,7 +132,7 @@ int main()
 
     // using csr_t = gunrock::format::csr_t<gunrock::memory_space_t::device, vertex_t, edge_t, weight_t>;
 
-    std::string marker_path = cv::samples::findFile("../../imgs/mr/100-percent-marker.jpg");
+    std::string marker_path = cv::samples::findFile("../../imgs/mr/100-percent-marker-2k.jpg");
     cv::Mat marker = cv::imread(marker_path, cv::IMREAD_GRAYSCALE);
     if (marker.empty())
     {
@@ -140,7 +140,7 @@ int main()
         return 1;
     }
 
-    std::string mask_path = cv::samples::findFile("../../imgs/mr/100-percent-mask.jpg");
+    std::string mask_path = cv::samples::findFile("../../imgs/mr/100-percent-mask-2k.jpg");
     cv::Mat mask = cv::imread(mask_path, cv::IMREAD_GRAYSCALE);
     if (mask.empty())
     {
@@ -148,8 +148,8 @@ int main()
         return 1;
     }
 
-    rasterScan(marker, mask);
-    antiRasterScan(marker, mask);
+    // rasterScan(marker, mask);
+    // antiRasterScan(marker, mask);
 
     // cv::Rect myRect(0, 0, 100, 100);
     // cv::Mat croppedImage = marker(myRect);
@@ -182,7 +182,7 @@ int main()
 
     // std::cout << marker << std::endl;
 
-    // iwp::runMorphRec(marker, mask);
+    iwp::runMorphRec(marker, mask);
 
     return 0;
 }

@@ -15,6 +15,99 @@ int iwp::getNumberOfEdges(int width, int height)
     return (width * height * 8) - ((4 * 5) + ((width - 2) * 3 * 2) + ((height - 2) * 3 * 2));
 }
 
+void iwp::rasterScan(cv::Mat &marker, cv::Mat &mask)
+{
+    for (int i = 0; i < marker.rows; i++)
+    {
+        for (int j = 0; j < marker.cols; j++)
+        {
+            int n_plus_neighbors[4][2] = {
+                {j - 1, i},
+                {j - 1, i - 1},
+                {j, i - 1},
+                {j + 1, i - 1}};
+
+            int p_value = (int)marker.at<uchar>(j, i);
+            int m_value = (int)mask.at<uchar>(j, i);
+
+            for (int n = 0; n < 4; n++)
+            {
+                if (n_plus_neighbors[n][0] < 0 ||
+                    n_plus_neighbors[n][0] > marker.cols - 1 ||
+                    n_plus_neighbors[n][1] < 0 ||
+                    n_plus_neighbors[n][1] > marker.rows - 1) // checking out-of-bounds
+                {
+                    continue;
+                }
+
+                int n_value = (int)marker.at<uchar>(n_plus_neighbors[n][0], n_plus_neighbors[n][1]);
+                p_value = std::max(p_value, n_value);
+            }
+
+            p_value = std::min(p_value, m_value);
+            marker.at<uchar>(j, i) = p_value;
+        }
+    }
+}
+
+template <typename vertex_t>
+std::vector<vertex_t> iwp::antiRasterScan(cv::Mat &marker, cv::Mat &mask)
+{
+    std::vector<vertex_t> fifo;
+    for (int i = 0; i < marker.rows; i++)
+    {
+        for (int j = 0; j < marker.cols; j++)
+        {
+            int n_minus_neighbors[4][2] = {
+                {j - 1, i + 1},
+                {j, i + 1},
+                {j + 1, i + 1},
+                {j + 1, i}};
+
+            int p_value = (int)marker.at<uchar>(j, i);
+            int m_value = (int)mask.at<uchar>(j, i);
+
+            for (int n = 0; n < 4; n++)
+            {
+                if (n_minus_neighbors[n][0] < 0 ||
+                    n_minus_neighbors[n][0] > marker.cols - 1 ||
+                    n_minus_neighbors[n][1] < 0 ||
+                    n_minus_neighbors[n][1] > marker.rows - 1) // checking out-of-bounds
+                {
+                    continue;
+                }
+
+                int n_value = (int)marker.at<uchar>(n_minus_neighbors[n][0], n_minus_neighbors[n][1]);
+                p_value = std::max(p_value, n_value);
+            }
+
+            p_value = std::min(p_value, m_value);
+            marker.at<uchar>(j, i) = p_value;
+
+            for (int n = 0; n < 4; n++)
+            {
+                if (n_minus_neighbors[n][0] < 0 ||
+                    n_minus_neighbors[n][0] > marker.cols - 1 ||
+                    n_minus_neighbors[n][1] < 0 ||
+                    n_minus_neighbors[n][1] > marker.rows - 1) // checking out-of-bounds
+                {
+                    continue;
+                }
+
+                int n_value = (int)marker.at<uchar>(n_minus_neighbors[n][0], n_minus_neighbors[n][1]);
+                int m_n_value = (int)mask.at<uchar>(n_minus_neighbors[n][0], n_minus_neighbors[n][1]);
+
+                if (n_value < p_value && n_value < m_n_value)
+                {
+                    fifo.push_back(get1DCoords(marker, pixel_coords(j, i))); // wrong, need to be coord of p
+                }
+            }
+        }
+    }
+
+    return fifo;
+}
+
 std::vector<int> iwp::getPixelNeighbours(cv::Mat &img, pixel_coords coords)
 {
     std::vector<int> neighbours;
@@ -45,7 +138,7 @@ std::vector<int> iwp::getPixelNeighbours(cv::Mat &img, pixel_coords coords)
 }
 
 template <typename vertex_t, typename edge_t, typename weight_t>
-auto iwp::convertImgToGraph(cv::Mat &marker, cv::Mat &mask, thrust::device_vector<vertex_t> &markerValues, thrust::device_vector<vertex_t> &maskValues)
+auto iwp::convertImgToGraph(cv::Mat &marker, cv::Mat &mask, thrust::device_vector<vertex_t> &markerValues, thrust::device_vector<vertex_t> &maskValues, std::vector<vertex_t> initial)
 {
     debugLine("ConvertImgToGraph");
     using csr_t = gunrock::format::csr_t<gunrock::memory_space_t::device, vertex_t, edge_t, weight_t>;
@@ -138,9 +231,9 @@ auto iwp::convertImgToGraph(cv::Mat &marker, cv::Mat &mask, thrust::device_vecto
 
     gunrock::print::head(markerValues, 100, "Marker");
 
-    float gpu_elapsed = run(G, maskValues.data().get(), marker.cols, marker.rows, markerValues.data().get());
+    float gpu_elapsed = run(G, maskValues.data().get(), marker.cols, marker.rows, initial, markerValues.data().get());
 
-    // gunrock::print::head(markerValues, 100, "Marker");
+    gunrock::print::head(markerValues, 100, "Marker");
     debug(gpu_elapsed);
 
     saveMarkerImg(markerValues, marker.cols, marker.rows);
@@ -169,7 +262,19 @@ float iwp::runMorphRec(cv::Mat &marker, cv::Mat &mask)
     using edge_t = int;
     using weight_t = int;
 
+    // cv::Rect myRect(0, 0, 4096, 2048);
+
+    // cv::Mat marker_cropped = marker(myRect);
+    // cv::Mat mask_cropped = mask(myRect);
+
+    // debug(marker_cropped.rows);
+
     int numVertices = marker.rows * marker.cols;
+
+    rasterScan(marker, mask);
+    std::vector<vertex_t> initial = antiRasterScan<vertex_t>(marker, mask);
+
+    // debug(initial);
 
     thrust::device_vector<vertex_t> markerValues(numVertices);
     thrust::device_vector<vertex_t> maskValues(numVertices);
@@ -177,7 +282,8 @@ float iwp::runMorphRec(cv::Mat &marker, cv::Mat &mask)
     auto markerGraph = convertImgToGraph<vertex_t, edge_t, weight_t>(marker,
                                                                      mask,
                                                                      markerValues,
-                                                                     maskValues);
+                                                                     maskValues,
+                                                                     initial);
 
     // float gpu_elapsed = run(markerGraph, maskValues.data().get(), markerValues.data().get());
 

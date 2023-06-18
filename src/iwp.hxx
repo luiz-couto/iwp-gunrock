@@ -31,6 +31,10 @@ namespace iwp
     pixel_coords get2DCoords(int width, int coord);
     std::vector<int> getPixelNeighbours(cv::Mat &img, pixel_coords coords);
     int getNumberOfEdges(int width, int height);
+    void rasterScan(cv::Mat &marker, cv::Mat &mask);
+
+    template <typename vertex_t>
+    std::vector<vertex_t> antiRasterScan(cv::Mat &marker, cv::Mat &mask);
 
     template <typename vertex_t>
     void saveMarkerImg(thrust::device_vector<vertex_t> &markerValues, int img_width, int img_height);
@@ -46,7 +50,11 @@ namespace iwp
         vertex_t *mask;
         int img_width;
         int img_height;
-        param_t(vertex_t *_mask, int _img_width, int _img_height) : mask(_mask), img_width(_img_width), img_height(_img_height) {}
+        std::vector<vertex_t> initial;
+        param_t(vertex_t *_mask,
+                int _img_width,
+                int _img_height,
+                std::vector<vertex_t> _initial) : mask(_mask), img_width(_img_width), img_height(_img_height), initial(_initial) {}
     };
 
     template <typename vertex_t>
@@ -92,106 +100,116 @@ namespace iwp
 
             debugLine("Prepare Frontier");
 
-            auto P = this->get_problem();
-            auto G = P->get_graph();
-            vertex_t *marker = P->result.marker;
-            vertex_t *mask = P->param.mask;
+            // auto P = this->get_problem();
+            // auto G = P->get_graph();
+            // vertex_t *marker = P->result.marker;
+            // vertex_t *mask = P->param.mask;
 
-            int width = P->param.img_width;
-            int height = P->param.img_height;
+            // int width = P->param.img_width;
+            // int height = P->param.img_height;
 
-            debugLine("AAAAAAAAA");
+            // debugLine("AAAAAAAAA");
 
-            thrust::device_vector<vertex_t> device_frontier(G.get_number_of_vertices(), -1);
-            vertex_t *f_pointer = device_frontier.data().get();
+            // thrust::device_vector<vertex_t> device_frontier(G.get_number_of_vertices(), -1);
+            // vertex_t *f_pointer = device_frontier.data().get();
 
-            debugLine("BBBBBBB");
+            // debugLine("BBBBBBB");
 
-            auto update_pixel = [G, marker, mask, width, height] __device__(vertex_t const &v)
-            {
-                // printf("v: %d, ", v);
-                auto startEdge = G.get_starting_edge(v);
-                auto numberNgbs = G.get_number_of_neighbors(v);
-                vertex_t greater = marker[v];
+            // auto update_pixel = [G, marker, mask, width, height] __device__(vertex_t const &v)
+            // {
+            //     // printf("v: %d, ", v);
+            //     auto startEdge = G.get_starting_edge(v);
+            //     auto numberNgbs = G.get_number_of_neighbors(v);
+            //     vertex_t greater = marker[v];
 
-                for (auto e = startEdge; e < startEdge + numberNgbs; e++)
-                {
-                    vertex_t ngb = G.get_destination_vertex(e);
+            //     for (auto e = startEdge; e < startEdge + numberNgbs; e++)
+            //     {
+            //         vertex_t ngb = G.get_destination_vertex(e);
 
-                    if (marker[ngb] > greater)
-                        greater = marker[ngb];
-                }
+            //         if (marker[ngb] > greater)
+            //             greater = marker[ngb];
+            //     }
 
-                if (greater > mask[v])
-                    greater = mask[v];
+            //     if (greater > mask[v])
+            //         greater = mask[v];
 
-                gunrock::math::atomic::exch(&marker[v], greater);
-            };
+            //     gunrock::math::atomic::exch(&marker[v], greater);
+            // };
 
-            auto raster_scan = [G, marker, mask, width, height, update_pixel] __device__(vertex_t const &x)
-            {
-                for (int v = 0; v < width * height; v++)
-                {
-                    update_pixel(v);
-                }
-            };
+            // auto raster_scan = [G, marker, mask, width, height, update_pixel] __device__(vertex_t const &x)
+            // {
+            //     for (int v = 0; v < width * height; v++)
+            //     {
+            //         update_pixel(v);
+            //     }
+            // };
 
-            auto fill_frontier = [G, marker, mask, f_pointer, update_pixel, width, height] __device__(vertex_t const &x)
-            {
-                for (int v = width * height - 1; v >= 0; v--)
-                {
-                    update_pixel(v);
+            // auto fill_frontier = [G, marker, mask, f_pointer, update_pixel, width, height] __device__(vertex_t const &v)
+            // {
+            //     update_pixel(v);
 
-                    edge_t startEdge = G.get_starting_edge(v);
-                    auto numberNgbs = G.get_number_of_neighbors(v);
+            //     edge_t startEdge = G.get_starting_edge(v);
+            //     auto numberNgbs = G.get_number_of_neighbors(v);
 
-                    for (edge_t e = startEdge; e < startEdge + numberNgbs; e++)
-                    {
-                        vertex_t ngb = G.get_destination_vertex(e);
-                        if ((marker[ngb] < marker[v]) && (marker[ngb] < mask[ngb]))
-                        {
-                            // printf("v: %d, ngb: %d", v, ngb);
-                            f_pointer[ngb] = 1;
-                        }
-                    }
-                }
-            };
+            //     for (edge_t e = startEdge; e < startEdge + numberNgbs; e++)
+            //     {
+            //         vertex_t ngb = G.get_destination_vertex(e);
+            //         if ((marker[ngb] < marker[v]) && (marker[ngb] < mask[ngb]))
+            //         {
+            //             // printf("v: %d, ngb: %d", v, ngb);
+            //             f_pointer[ngb] = 1;
+            //         }
+            //     }
+            // };
 
-            auto policy = context.get_context(0)->execution_policy();
+            // debug(G.get_number_of_vertices());
 
-            // For each (count from 0...#_of_Vertices), and perform
-            // the operation called update_pixel.
-            thrust::for_each(policy,
-                             thrust::make_counting_iterator<vertex_t>(0), // Begin: 0
-                             thrust::make_counting_iterator<vertex_t>(1), // End: # of Vertices
-                             raster_scan                                  // Unary operation
-            );
+            // auto policy = context.get_context(0)->execution_policy();
+
+            // // For each (count from 0...#_of_Vertices), and perform
+            // // the operation called update_pixel.
+            // thrust::for_each(policy,
+            //                  thrust::make_counting_iterator<vertex_t>(0),                          // Begin: 0
+            //                  thrust::make_counting_iterator<vertex_t>(G.get_number_of_vertices()), // End: # of Vertices
+            //                  update_pixel                                                          // Unary operation
+            // );
 
             // cudaDeviceSynchronize();
 
-            // DISCOVER A WAY TO DO IT IN A ANTI-RASTER MANNER
-            thrust::for_each(policy,
-                             thrust::make_counting_iterator<vertex_t>(0), // Begin: 0
-                             thrust::make_counting_iterator<vertex_t>(1), // End: # of Vertices
-                             fill_frontier                                // Unary operation
-            );
+            // // DISCOVER A WAY TO DO IT IN A ANTI-RASTER MANNER
+            // thrust::for_each(policy,
+            //                  thrust::make_counting_iterator<vertex_t>(0),                          // Begin: 0
+            //                  thrust::make_counting_iterator<vertex_t>(G.get_number_of_vertices()), // End: # of Vertices
+            //                  fill_frontier                                                         // Unary operation
+            // );
 
-            cudaDeviceSynchronize();
+            // cudaDeviceSynchronize();
 
-            debugLine("UHUUUULL");
+            // debugLine("UHUUUULL");
 
-            thrust::host_vector<vertex_t> host_frontier(G.get_number_of_vertices());
-            thrust::copy(device_frontier.begin(), device_frontier.end(), host_frontier.begin());
-            // thrust::host_vector<vertex_t> host_frontier = device_frontier;
-            std::map<int, bool> entered_pixels;
-            // debug(host_frontier[359575]);
-            for (int i = 0; i < G.get_number_of_vertices(); i++)
+            // thrust::host_vector<vertex_t> host_frontier(G.get_number_of_vertices());
+            // thrust::copy(device_frontier.begin(), device_frontier.end(), host_frontier.begin());
+            // // thrust::host_vector<vertex_t> host_frontier = device_frontier;
+            // // std::map<int, bool> entered_pixels;
+            // // debug(host_frontier[359575]);
+            // for (int i = 0; i < G.get_number_of_vertices(); i++)
+            // {
+            //     if (host_frontier[i] != -1)
+            //     {
+            //         f->push_back(i);
+            //     }
+            // }
+
+            auto P = this->get_problem();
+            std::vector<vertex_t> initial = P->param.initial;
+
+            for (vertex_t p : initial)
             {
-                if (host_frontier[i] != -1)
-                {
-                    f->push_back(i);
-                }
+                f->push_back(p);
             }
+
+            // f->resize(initial.size());
+            // thrust::copy(initial.begin(), initial.end(), f->begin());
 
             debug(f->get_number_of_elements());
         }
@@ -233,6 +251,7 @@ namespace iwp
               typename graph_t::vertex_type *mask,   // Parameter
               const int img_width,                   // Parameter
               const int img_height,                  // Parameter
+              std::vector<int> initial,              // Parameter
               typename graph_t::vertex_type *marker, // Output
               std::shared_ptr<gunrock::gcuda::multi_context_t> context =
                   std::shared_ptr<gunrock::gcuda::multi_context_t>(
@@ -246,7 +265,7 @@ namespace iwp
         using param_type = param_t<vertex_t>;
         using result_type = result_t<vertex_t>;
 
-        param_type param(mask, img_width, img_height);
+        param_type param(mask, img_width, img_height, initial);
         result_type result(marker);
         // </user-defined>
 
