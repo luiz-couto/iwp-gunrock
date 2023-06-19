@@ -203,13 +203,16 @@ namespace iwp
             auto P = this->get_problem();
             std::vector<vertex_t> initial = P->param.initial;
 
-            for (vertex_t p : initial)
-            {
-                f->push_back(p);
-            }
+            if (f->get_capacity() < initial.size())
+                f->reserve(initial.size());
 
-            // f->resize(initial.size());
-            // thrust::copy(initial.begin(), initial.end(), f->begin());
+            // Set the new number of elements.
+            f->set_number_of_elements(initial.size());
+
+            thrust::device_vector<vertex_t> dv(initial);
+            thrust::copy(dv.begin(), dv.end(), f->begin());
+
+            cudaDeviceSynchronize();
 
             debug(f->get_number_of_elements());
         }
