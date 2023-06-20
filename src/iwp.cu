@@ -10,27 +10,35 @@ pixel_coords iwp::get2DCoords(int width, int coord)
     return pixel_coords(coord % width, coord / width);
 }
 
-int iwp::getNumberOfEdges(int width, int height)
+int iwp::getNumberOfEdges(int width, int height, CONN conn)
 {
+    if (conn == CONN_4)
+    {
+        return (width * height * 4) - ((4 * 2) + ((width - 2) * 1 * 2) + ((height - 2) * 1 * 2));
+    }
     return (width * height * 8) - ((4 * 5) + ((width - 2) * 3 * 2) + ((height - 2) * 3 * 2));
 }
 
-void iwp::rasterScan(cv::Mat &marker, cv::Mat &mask)
+void iwp::rasterScan(cv::Mat &marker, cv::Mat &mask, CONN conn)
 {
+    int num_ngbs = 4;
+    if (conn == CONN_4)
+        num_ngbs = 2;
+
     for (int i = 0; i < marker.rows; i++)
     {
         for (int j = 0; j < marker.cols; j++)
         {
             int n_plus_neighbors[4][2] = {
                 {j - 1, i},
-                {j - 1, i - 1},
                 {j, i - 1},
+                {j - 1, i - 1},
                 {j + 1, i - 1}};
 
             int p_value = (int)marker.at<uchar>(j, i);
             int m_value = (int)mask.at<uchar>(j, i);
 
-            for (int n = 0; n < 4; n++)
+            for (int n = 0; n < num_ngbs; n++)
             {
                 if (n_plus_neighbors[n][0] < 0 ||
                     n_plus_neighbors[n][0] > marker.cols - 1 ||
@@ -51,23 +59,27 @@ void iwp::rasterScan(cv::Mat &marker, cv::Mat &mask)
 }
 
 template <typename vertex_t>
-std::vector<vertex_t> iwp::antiRasterScan(cv::Mat &marker, cv::Mat &mask)
+std::vector<vertex_t> iwp::antiRasterScan(cv::Mat &marker, cv::Mat &mask, CONN conn)
 {
     std::vector<vertex_t> fifo;
+    int num_ngbs = 4;
+    if (conn == CONN_4)
+        num_ngbs = 2;
+
     for (int i = 0; i < marker.rows; i++)
     {
         for (int j = 0; j < marker.cols; j++)
         {
             int n_minus_neighbors[4][2] = {
-                {j - 1, i + 1},
+                {j + 1, i},
                 {j, i + 1},
                 {j + 1, i + 1},
-                {j + 1, i}};
+                {j - 1, i + 1}};
 
             int p_value = (int)marker.at<uchar>(j, i);
             int m_value = (int)mask.at<uchar>(j, i);
 
-            for (int n = 0; n < 4; n++)
+            for (int n = 0; n < num_ngbs; n++)
             {
                 if (n_minus_neighbors[n][0] < 0 ||
                     n_minus_neighbors[n][0] > marker.cols - 1 ||
@@ -84,7 +96,7 @@ std::vector<vertex_t> iwp::antiRasterScan(cv::Mat &marker, cv::Mat &mask)
             p_value = std::min(p_value, m_value);
             marker.at<uchar>(j, i) = p_value;
 
-            for (int n = 0; n < 4; n++)
+            for (int n = 0; n < num_ngbs; n++)
             {
                 if (n_minus_neighbors[n][0] < 0 ||
                     n_minus_neighbors[n][0] > marker.cols - 1 ||
@@ -108,7 +120,7 @@ std::vector<vertex_t> iwp::antiRasterScan(cv::Mat &marker, cv::Mat &mask)
     return fifo;
 }
 
-std::vector<int> iwp::getPixelNeighbours(cv::Mat &img, pixel_coords coords)
+std::vector<int> iwp::getPixelNeighbours(cv::Mat &img, pixel_coords coords, CONN conn)
 {
     std::vector<int> neighbours;
 
@@ -129,6 +141,11 @@ std::vector<int> iwp::getPixelNeighbours(cv::Mat &img, pixel_coords coords)
         {
             if (!(i == coords.first && j == coords.second) && (i < img.size().width) && (j < img.size().height))
             {
+
+                if (conn == CONN_4 && i != coords.first && j != coords.second)
+                {
+                    continue;
+                }
                 neighbours.push_back(get1DCoords(img, pixel_coords(i, j)));
             }
         }
@@ -138,12 +155,12 @@ std::vector<int> iwp::getPixelNeighbours(cv::Mat &img, pixel_coords coords)
 }
 
 template <typename vertex_t, typename edge_t, typename weight_t>
-auto iwp::convertImgToGraph(cv::Mat &marker, cv::Mat &mask, thrust::device_vector<vertex_t> &markerValues, thrust::device_vector<vertex_t> &maskValues, std::vector<vertex_t> initial)
+auto iwp::convertImgToGraph(cv::Mat &marker, cv::Mat &mask, thrust::device_vector<vertex_t> &markerValues, thrust::device_vector<vertex_t> &maskValues, std::vector<vertex_t> initial, CONN conn)
 {
     debugLine("ConvertImgToGraph");
     using csr_t = gunrock::format::csr_t<gunrock::memory_space_t::device, vertex_t, edge_t, weight_t>;
 
-    int num_edges = getNumberOfEdges(marker.cols, marker.rows);
+    int num_edges = getNumberOfEdges(marker.cols, marker.rows, conn);
     debug(num_edges);
 
     // Allocate space for vectors
@@ -173,16 +190,11 @@ auto iwp::convertImgToGraph(cv::Mat &marker, cv::Mat &mask, thrust::device_vecto
             marker_host[oneDPos] = (int)marker.at<uchar>(j, i);
             mask_host[oneDPos] = (int)mask.at<uchar>(j, i);
 
-            // markerValues[oneDPos] = (int)marker.at<uchar>(j, i);
-            // maskValues[oneDPos] = (int)mask.at<uchar>(j, i);
-
-            std::vector<int> neighbours = getPixelNeighbours(marker, pixel);
+            std::vector<int> neighbours = getPixelNeighbours(marker, pixel, conn);
             for (int neighbour : neighbours)
             {
                 Aj[myCount] = neighbour;
                 myCount++;
-                // Aj.push_back(neighbour);
-                // Ax.push_back(HAS_EDGE);
             }
 
             Ap[apCount] = Ap[apCount - 1] + neighbours.size();
@@ -271,8 +283,10 @@ float iwp::runMorphRec(cv::Mat &marker, cv::Mat &mask)
 
     int numVertices = marker.rows * marker.cols;
 
-    rasterScan(marker, mask);
-    std::vector<vertex_t> initial = antiRasterScan<vertex_t>(marker, mask);
+    CONN conn = CONN_4;
+
+    rasterScan(marker, mask, conn);
+    std::vector<vertex_t> initial = antiRasterScan<vertex_t>(marker, mask, conn);
 
     // debug(initial);
 
@@ -283,7 +297,8 @@ float iwp::runMorphRec(cv::Mat &marker, cv::Mat &mask)
                                                                      mask,
                                                                      markerValues,
                                                                      maskValues,
-                                                                     initial);
+                                                                     initial,
+                                                                     conn);
 
     // float gpu_elapsed = run(markerGraph, maskValues.data().get(), markerValues.data().get());
 

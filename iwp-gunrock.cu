@@ -132,7 +132,7 @@ int main()
 
     // using csr_t = gunrock::format::csr_t<gunrock::memory_space_t::device, vertex_t, edge_t, weight_t>;
 
-    std::string marker_path = cv::samples::findFile("../../imgs/mr/100-percent-marker-2k.jpg");
+    std::string marker_path = cv::samples::findFile("../../imgs/mr/100-percent-marker.jpg");
     cv::Mat marker = cv::imread(marker_path, cv::IMREAD_GRAYSCALE);
     if (marker.empty())
     {
@@ -140,7 +140,7 @@ int main()
         return 1;
     }
 
-    std::string mask_path = cv::samples::findFile("../../imgs/mr/100-percent-mask-2k.jpg");
+    std::string mask_path = cv::samples::findFile("../../imgs/mr/100-percent-mask.jpg");
     cv::Mat mask = cv::imread(mask_path, cv::IMREAD_GRAYSCALE);
     if (mask.empty())
     {

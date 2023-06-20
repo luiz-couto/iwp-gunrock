@@ -13,6 +13,12 @@
 #define debugLine(i) std::cout << "PASSOU AQUIIII" \
                                << " --- " << i << std::endl;
 
+enum CONN
+{
+    CONN_4,
+    CONN_8
+};
+
 using pixel_coords = std::pair<int, int>;
 
 template <typename S>
@@ -29,18 +35,18 @@ namespace iwp
 {
     int get1DCoords(cv::Mat &img, pixel_coords coords);
     pixel_coords get2DCoords(int width, int coord);
-    std::vector<int> getPixelNeighbours(cv::Mat &img, pixel_coords coords);
-    int getNumberOfEdges(int width, int height);
-    void rasterScan(cv::Mat &marker, cv::Mat &mask);
+    std::vector<int> getPixelNeighbours(cv::Mat &img, pixel_coords coords, CONN conn);
+    int getNumberOfEdges(int width, int height, CONN conn);
+    void rasterScan(cv::Mat &marker, cv::Mat &mask, CONN conn);
 
     template <typename vertex_t>
-    std::vector<vertex_t> antiRasterScan(cv::Mat &marker, cv::Mat &mask);
+    std::vector<vertex_t> antiRasterScan(cv::Mat &marker, cv::Mat &mask, CONN conn);
 
     template <typename vertex_t>
     void saveMarkerImg(thrust::device_vector<vertex_t> &markerValues, int img_width, int img_height);
 
     template <typename vertex_t, typename edge_t, typename weight_t>
-    auto convertImgToGraph(cv::Mat &marker, cv::Mat &mask, vertex_t *markerValues, vertex_t *maskValues);
+    auto convertImgToGraph(cv::Mat &marker, cv::Mat &mask, vertex_t *markerValues, vertex_t *maskValues, std::vector<vertex_t> initial, CONN conn);
 
     float runMorphRec(cv::Mat &marker, cv::Mat &mask);
 
