@@ -46,10 +46,7 @@ namespace iwp
     void saveMarkerImg(thrust::device_vector<vertex_t> &markerValues, int img_width, int img_height);
 
     template <typename vertex_t, typename edge_t, typename weight_t>
-    auto convertImgToGraph(cv::Mat &marker, cv::Mat &mask, vertex_t *markerValues, vertex_t *maskValues, std::vector<vertex_t> initial, CONN conn);
-
-    template <typename vertex_t, typename edge_t, typename weight_t>
-    void buildGraphAndRun(cv::Mat &marker, cv::Mat &mask, CONN conn);
+    void buildGraphAndRun(cv::Mat &marker, cv::Mat &mask, CONN conn, std::vector<vertex_t> initial);
 
     float runMorphRec(cv::Mat &marker, cv::Mat &mask);
 

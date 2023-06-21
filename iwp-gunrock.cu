@@ -159,9 +159,14 @@ int main()
 
     // debug(mask);
 
-    // uchar *test = mask.ptr();
+    // uchar *mask_ptr = mask.ptr();
 
-    // thrust::device_vector<uchar> test2(test, test + 2);
+    // debug((int)mask.at<uchar>(8767 / mask.cols, 8767 % mask.cols));
+
+    // thrust::host_vector<uchar> device_vec(mask.rows * mask.cols);
+    // thrust::copy(mask_ptr, mask_ptr + (mask.rows * mask.cols), device_vec.begin());
+
+    // debug((int)device_vec[8767]);
 
     // debug((int)test[27]);
 

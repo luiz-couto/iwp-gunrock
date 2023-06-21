@@ -111,7 +111,7 @@ std::vector<vertex_t> iwp::antiRasterScan(cv::Mat &marker, cv::Mat &mask, CONN c
 
                 if (n_value < p_value && n_value < m_n_value)
                 {
-                    fifo.push_back(get1DCoords(marker, pixel_coords(j, i))); // wrong, need to be coord of p
+                    fifo.push_back(get1DCoords(marker, pixel_coords(j, i)));
                 }
             }
         }
@@ -155,7 +155,7 @@ std::vector<int> iwp::getPixelNeighbours(cv::Mat &img, pixel_coords coords, CONN
 }
 
 template <typename vertex_t, typename edge_t, typename weight_t>
-void iwp::buildGraphAndRun(cv::Mat &marker, cv::Mat &mask, CONN conn)
+void iwp::buildGraphAndRun(cv::Mat &marker, cv::Mat &mask, CONN conn, std::vector<vertex_t> initial)
 {
     debugLine("buildGraphAndRun");
     int img_width = marker.size().width;
@@ -175,6 +175,31 @@ void iwp::buildGraphAndRun(cv::Mat &marker, cv::Mat &mask, CONN conn)
 
     thrust::device_vector<vertex_t> values(num_edges, 1);
     vertex_t *values_ptr = values.data().get();
+
+    uchar *marker_ptr = marker.ptr();
+    thrust::device_vector<uchar> marker_vec(img_width * img_height);
+    uchar *marker_vec_uchar_ptr = marker_vec.data().get();
+    thrust::copy(marker_ptr, marker_ptr + (img_width * img_height), marker_vec.begin());
+    thrust::device_vector<vertex_t> marker_vec_int(img_width * img_height);
+    vertex_t *marker_vec_int_ptr = marker_vec_int.data().get();
+
+    uchar *mask_ptr = mask.ptr();
+    thrust::device_vector<uchar> mask_vec(img_width * img_height);
+    uchar *mask_vec_uchar_ptr = mask_vec.data().get();
+    thrust::copy(mask_ptr, mask_ptr + (img_width * img_height), mask_vec.begin());
+    thrust::device_vector<vertex_t> mask_vec_int(img_width * img_height);
+    vertex_t *mask_vec_int_ptr = mask_vec_int.data().get();
+
+    auto convert_uchar_to_int = [marker_vec_uchar_ptr, marker_vec_int_ptr, mask_vec_uchar_ptr, mask_vec_int_ptr, img_width] __device__(vertex_t const &v)
+    {
+        int x = v % img_width;
+        int y = v / img_width;
+
+        int coord = (x * img_width) + y;
+
+        marker_vec_int_ptr[v] = (int)marker_vec_uchar_ptr[coord];
+        mask_vec_int_ptr[v] = (int)mask_vec_uchar_ptr[coord];
+    };
 
     auto set_column_idx = [img_width, img_height, conn, max_num_ngbs, column_idxs_ptr] __device__(vertex_t const &v)
     {
@@ -199,7 +224,7 @@ void iwp::buildGraphAndRun(cv::Mat &marker, cv::Mat &mask, CONN conn)
                     if (conn == CONN_4 && i != x && j != y)
                         continue;
 
-                    column_idxs_ptr[(v * max_num_ngbs) + count] = (j * img_width) + i;
+                    column_idxs_ptr[(v * max_num_ngbs) + count] = (j * img_width) + i; // maybe switch this i and j
                     count++;
                 }
             }
@@ -269,10 +294,17 @@ void iwp::buildGraphAndRun(cv::Mat &marker, cv::Mat &mask, CONN conn)
                      thrust::make_counting_iterator<vertex_t>(img_width * img_height), // End: # of Vertices
                      set_column_idx);                                                  // Unary operation
 
+    thrust::for_each(thrust::device, thrust::make_counting_iterator<vertex_t>(0),      // Begin: 0
+                     thrust::make_counting_iterator<vertex_t>(img_width * img_height), // End: # of Vertices
+                     convert_uchar_to_int);                                            // Unary operation
+
     cudaDeviceSynchronize();
 
     thrust::remove(column_idxs.begin(), column_idxs.end(), -1);
     column_idxs.resize(num_edges);
+
+    // gunrock::print::head(row_offsets, 20, "row_offsets");
+    // gunrock::print::head(column_idxs, 20, "column_idxs");
 
     auto G = gunrock::graph::build::from_csr<gunrock::memory::memory_space_t::device, gunrock::graph::view_t::csr>(
         img_width * img_height, // rows
@@ -283,107 +315,10 @@ void iwp::buildGraphAndRun(cv::Mat &marker, cv::Mat &mask, CONN conn)
         values_ptr              // values
     );
 
-    // gunrock::print::head(row_offsets, 20, "row_offsets");
-    // gunrock::print::head(column_idxs, 20, "column_idxs");
-}
-
-template <typename vertex_t, typename edge_t, typename weight_t>
-auto iwp::convertImgToGraph(cv::Mat &marker, cv::Mat &mask, thrust::device_vector<vertex_t> &markerValues, thrust::device_vector<vertex_t> &maskValues, std::vector<vertex_t> initial, CONN conn)
-{
-    debugLine("ConvertImgToGraph");
-    using csr_t = gunrock::format::csr_t<gunrock::memory_space_t::device, vertex_t, edge_t, weight_t>;
-
-    int num_edges = getNumberOfEdges(marker.cols, marker.rows, conn);
-    debug(num_edges);
-
-    // Allocate space for vectors
-    gunrock::vector_t<edge_t, gunrock::memory_space_t::host> Ap(marker.rows * marker.cols + 1); // rowOffset
-    gunrock::vector_t<vertex_t, gunrock::memory_space_t::host> Aj(num_edges);                   // columnIdx
-
-    std::vector<vertex_t> marker_host(marker.rows * marker.cols);
-    std::vector<vertex_t> mask_host(marker.rows * marker.cols);
-
-    const int HAS_EDGE = 1;
-    int apCount = 1;
-    int myCount = 0;
-
-    if (marker.empty())
-        throw "Unable to read image";
-
-    Ap[0] = 0;
-
-    for (int i = 0; i < marker.rows; i++)
-    {
-        for (int j = 0; j < marker.cols; j++)
-        {
-
-            pixel_coords pixel = pixel_coords(j, i);
-            int oneDPos = get1DCoords(marker, pixel);
-
-            marker_host[oneDPos] = (int)marker.at<uchar>(j, i);
-            mask_host[oneDPos] = (int)mask.at<uchar>(j, i);
-
-            std::vector<int> neighbours = getPixelNeighbours(marker, pixel, conn);
-            for (int neighbour : neighbours)
-            {
-                Aj[myCount] = neighbour;
-                myCount++;
-            }
-
-            Ap[apCount] = Ap[apCount - 1] + neighbours.size();
-            apCount++;
-        }
-    }
-
-    debug(myCount);
-    gunrock::vector_t<weight_t, gunrock::memory_space_t::host> Ax(num_edges, HAS_EDGE); // values
-
-    debugLine("After For");
-
-    csr_t csr(marker.rows * marker.cols, marker.rows * marker.cols, Ax.size());
-
-    csr.row_offsets = Ap;
-    csr.column_indices = Aj;
-    csr.nonzero_values = Ax;
-
-    debug(csr.number_of_rows);
-    debug(csr.number_of_columns);
-    debug(csr.number_of_nonzeros);
-    debug(csr.row_offsets.size());
-    debug(csr.column_indices.size());
-    debug(csr.nonzero_values.size());
-
-    // gunrock::print::head(Ap, Ap.size(), "Ap");
-    // gunrock::print::head(Aj, Aj.size(), "Aj");
-    //  gunrock::print::head(Ax, 20, "Ax");
-
-    // debug(values);
-
-    thrust::copy(marker_host.begin(), marker_host.end(), markerValues.begin());
-    thrust::copy(mask_host.begin(), mask_host.end(), maskValues.begin());
-
-    debugLine("After Img Attrib");
-
-    // Build graph
-    auto G = gunrock::graph::build::from_csr<gunrock::memory::memory_space_t::device, gunrock::graph::view_t::csr>(
-        csr.number_of_rows,              // rows
-        csr.number_of_columns,           // columns
-        csr.number_of_nonzeros,          // nonzeros
-        csr.row_offsets.data().get(),    // row_offsets
-        csr.column_indices.data().get(), // column_indices
-        csr.nonzero_values.data().get()  // values
-    );
-
-    gunrock::print::head(markerValues, 100, "Marker");
-
-    float gpu_elapsed = run(G, maskValues.data().get(), marker.cols, marker.rows, initial, markerValues.data().get());
-
-    gunrock::print::head(markerValues, 100, "Marker");
+    float gpu_elapsed = run(G, mask_vec_int_ptr, img_width, img_height, initial, marker_vec_int_ptr);
     debug(gpu_elapsed);
 
-    saveMarkerImg(markerValues, marker.cols, marker.rows);
-
-    return G;
+    saveMarkerImg(marker_vec_int, img_width, img_height);
 }
 
 template <typename vertex_t>
@@ -414,7 +349,7 @@ float iwp::runMorphRec(cv::Mat &marker, cv::Mat &mask)
 
     // debug(marker_cropped.rows);
 
-    int numVertices = marker.rows * marker.cols;
+    // int numVertices = marker.rows * marker.cols;
 
     CONN conn = CONN_4;
 
@@ -423,19 +358,7 @@ float iwp::runMorphRec(cv::Mat &marker, cv::Mat &mask)
 
     // debug(initial);
 
-    buildGraphAndRun<vertex_t, edge_t, weight_t>(marker, mask, conn);
-
-    thrust::device_vector<vertex_t> markerValues(numVertices);
-    thrust::device_vector<vertex_t> maskValues(numVertices);
-
-    auto markerGraph = convertImgToGraph<vertex_t, edge_t, weight_t>(marker,
-                                                                     mask,
-                                                                     markerValues,
-                                                                     maskValues,
-                                                                     initial,
-                                                                     conn);
-
-    // float gpu_elapsed = run(markerGraph, maskValues.data().get(), markerValues.data().get());
+    buildGraphAndRun<vertex_t, edge_t, weight_t>(marker, mask, conn, initial);
 
     // gunrock::print::head(markerValues, 20, "Marker");
 
