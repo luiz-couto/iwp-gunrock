@@ -173,7 +173,7 @@ void iwp::buildGraphAndRun(cv::Mat &marker, cv::Mat &mask, CONN conn)
     thrust::device_vector<vertex_t> column_idxs(img_width * img_height * max_num_ngbs, -1);
     vertex_t *column_idxs_ptr = column_idxs.data().get();
 
-    auto set_column_idx = [img_width, img_height, conn, column_idxs_ptr] __device__(vertex_t const &v)
+    auto set_column_idx = [img_width, img_height, conn, max_num_ngbs, column_idxs_ptr] __device__(vertex_t const &v)
     {
         int x = v % img_width;
         int y = v / img_width;
@@ -196,7 +196,7 @@ void iwp::buildGraphAndRun(cv::Mat &marker, cv::Mat &mask, CONN conn)
                     if (conn == CONN_4 && i != x && j != y)
                         continue;
 
-                    column_idxs_ptr[v + count] = (y * img_width) + x;
+                    column_idxs_ptr[(v * max_num_ngbs) + count] = (j * img_width) + i;
                     count++;
                 }
             }
@@ -266,9 +266,13 @@ void iwp::buildGraphAndRun(cv::Mat &marker, cv::Mat &mask, CONN conn)
                      thrust::make_counting_iterator<vertex_t>(img_width * img_height), // End: # of Vertices
                      set_column_idx);                                                  // Unary operation
 
-    thrust::remove(column_idxs.begin(), column_idxs.end(), -1); // need to check this approach
+    cudaDeviceSynchronize();
 
-    gunrock::print::head(row_offsets, 20, "row_offsets");
+    thrust::remove(column_idxs.begin(), column_idxs.end(), -1);
+    column_idxs.resize(num_edges);
+
+    // gunrock::print::head(row_offsets, 20, "row_offsets");
+    // gunrock::print::head(column_idxs, 20, "column_idxs");
 }
 
 template <typename vertex_t, typename edge_t, typename weight_t>
@@ -337,9 +341,9 @@ auto iwp::convertImgToGraph(cv::Mat &marker, cv::Mat &mask, thrust::device_vecto
     debug(csr.column_indices.size());
     debug(csr.nonzero_values.size());
 
-    gunrock::print::head(Ap, 20, "Ap");
-    // gunrock::print::head(Aj, 684, "Aj");
-    // gunrock::print::head(Ax, 20, "Ax");
+    // gunrock::print::head(Ap, Ap.size(), "Ap");
+    // gunrock::print::head(Aj, Aj.size(), "Aj");
+    //  gunrock::print::head(Ax, 20, "Ax");
 
     // debug(values);
 
