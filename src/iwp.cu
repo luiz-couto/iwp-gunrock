@@ -155,6 +155,86 @@ std::vector<int> iwp::getPixelNeighbours(cv::Mat &img, pixel_coords coords, CONN
 }
 
 template <typename vertex_t, typename edge_t, typename weight_t>
+auto iwp::buildGraphAndRun(cv::Mat &marker, cv::Mat &mask, CONN conn)
+{
+    debugLine("buildGraphAndRun");
+    int img_width = marker.size().width;
+    int img_height = marker.size().height;
+    int num_edges = getNumberOfEdges(marker.cols, marker.rows, conn);
+
+    thrust::device_vector<vertex_t> row_offsets(img_width * img_height + 1, 0);
+    vertex_t *row_offsets_ptr = row_offsets.data().get();
+
+    int max_num_ngbs = 8;
+    if (conn == CONN_4)
+    {
+        max_num_ngbs = 4;
+    }
+    thrust::device_vector<vertex_t> column_idxs(img_width * img_height * max_num_ngbs);
+    vertex_t *column_idxs_ptr = column_idxs.data().get();
+
+    auto set_row_offset = [img_width, img_height, conn, row_offsets_ptr] __device__(vertex_t const &v)
+    {
+        int x = v % width;
+        int y = v / width;
+
+        int num_edges_corner = 3;
+        if (conn == CONN_4)
+            num_edges_corner = 2;
+
+        int num_edges_border = 5;
+        if (conn == CONN_4)
+            num_edges_border = 3;
+
+        int num_edges_inner = 8;
+        if (conn == CONN_4)
+            num_edges_inner = 4;
+
+        // (number of rows above) * (num_corner_pixels_above) *
+        int edges_sum = 0;
+        if (y != 0)
+        {
+            edges_sum += (2 * num_edges_corner) + (((y * 2) - 2) * num_edges_border);
+            edges_sum += ((img_width - 2) * (y - 1) * num_edges_inner)) + ((img_width - 2) * num_edges_border);
+        }
+
+        if (x != 0)
+        {
+            if (y == 0 || y == img_height - 1)
+            {
+                edges_sum += 1 * num_edges_corner;
+                edges_sum += (x - 1) * num_edges_border;
+            }
+            else
+            {
+                edges_sum += 1 * num_edges_border;
+                edges_sum += (x - 1) * num_edges_inner;
+            }
+        }
+
+        int num_ngbs;
+        if ((x == 0 || x == img_width - 1) && (y == 0 || y == img_height - 1))
+        {
+            num_ngbs = num_edges_corner;
+        }
+        else if (x == 0 || x == img_width - 1 || y == 0 || y == img_height - 1)
+        {
+            num_ngbs = num_edges_border;
+        }
+        else
+        {
+            num_ngbs = num_edges_inner;
+        }
+
+        row_offsets_ptr[v + 1] = edges_sum + num_ngbs;
+    }
+
+    thrust::for_each(thrust::device, thrust::make_counting_iterator<vertex_t>(0),      // Begin: 0
+                     thrust::make_counting_iterator<vertex_t>(img_width * img_height), // End: # of Vertices
+                     set_row_offset);                                                  // Unary operation
+}
+
+template <typename vertex_t, typename edge_t, typename weight_t>
 auto iwp::convertImgToGraph(cv::Mat &marker, cv::Mat &mask, thrust::device_vector<vertex_t> &markerValues, thrust::device_vector<vertex_t> &maskValues, std::vector<vertex_t> initial, CONN conn)
 {
     debugLine("ConvertImgToGraph");
