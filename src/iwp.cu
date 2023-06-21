@@ -173,6 +173,9 @@ void iwp::buildGraphAndRun(cv::Mat &marker, cv::Mat &mask, CONN conn)
     thrust::device_vector<vertex_t> column_idxs(img_width * img_height * max_num_ngbs, -1);
     vertex_t *column_idxs_ptr = column_idxs.data().get();
 
+    thrust::device_vector<vertex_t> values(num_edges, 1);
+    vertex_t *values_ptr = values.data().get();
+
     auto set_column_idx = [img_width, img_height, conn, max_num_ngbs, column_idxs_ptr] __device__(vertex_t const &v)
     {
         int x = v % img_width;
@@ -270,6 +273,15 @@ void iwp::buildGraphAndRun(cv::Mat &marker, cv::Mat &mask, CONN conn)
 
     thrust::remove(column_idxs.begin(), column_idxs.end(), -1);
     column_idxs.resize(num_edges);
+
+    auto G = gunrock::graph::build::from_csr<gunrock::memory::memory_space_t::device, gunrock::graph::view_t::csr>(
+        img_width * img_height, // rows
+        img_width * img_height, // columns
+        num_edges,              // nonzeros
+        row_offsets_ptr,        // row_offsets
+        column_idxs_ptr,        // column_indices
+        values_ptr              // values
+    );
 
     // gunrock::print::head(row_offsets, 20, "row_offsets");
     // gunrock::print::head(column_idxs, 20, "column_idxs");
