@@ -155,7 +155,7 @@ std::vector<int> iwp::getPixelNeighbours(cv::Mat &img, pixel_coords coords, CONN
 }
 
 template <typename vertex_t, typename edge_t, typename weight_t>
-auto iwp::buildGraphAndRun(cv::Mat &marker, cv::Mat &mask, CONN conn)
+void iwp::buildGraphAndRun(cv::Mat &marker, cv::Mat &mask, CONN conn)
 {
     debugLine("buildGraphAndRun");
     int img_width = marker.size().width;
@@ -170,13 +170,43 @@ auto iwp::buildGraphAndRun(cv::Mat &marker, cv::Mat &mask, CONN conn)
     {
         max_num_ngbs = 4;
     }
-    thrust::device_vector<vertex_t> column_idxs(img_width * img_height * max_num_ngbs);
+    thrust::device_vector<vertex_t> column_idxs(img_width * img_height * max_num_ngbs, -1);
     vertex_t *column_idxs_ptr = column_idxs.data().get();
+
+    auto set_column_idx = [img_width, img_height, conn, column_idxs_ptr] __device__(vertex_t const &v)
+    {
+        int x = v % img_width;
+        int y = v / img_width;
+        int floorX = x;
+        int floorY = y;
+
+        if (x != 0)
+            floorX -= 1;
+
+        if (y != 0)
+            floorY -= 1;
+
+        int count = 0;
+        for (int i = floorX; i < x + 2; i++)
+        {
+            for (int j = floorY; j < y + 2; j++)
+            {
+                if (!(i == x && j == y) && (i < img_width) && (j < img_height))
+                {
+                    if (conn == CONN_4 && i != x && j != y)
+                        continue;
+
+                    column_idxs_ptr[v + count] = (y * img_width) + x;
+                    count++;
+                }
+            }
+        }
+    };
 
     auto set_row_offset = [img_width, img_height, conn, row_offsets_ptr] __device__(vertex_t const &v)
     {
-        int x = v % width;
-        int y = v / width;
+        int x = v % img_width;
+        int y = v / img_width;
 
         int num_edges_corner = 3;
         if (conn == CONN_4)
@@ -190,12 +220,11 @@ auto iwp::buildGraphAndRun(cv::Mat &marker, cv::Mat &mask, CONN conn)
         if (conn == CONN_4)
             num_edges_inner = 4;
 
-        // (number of rows above) * (num_corner_pixels_above) *
         int edges_sum = 0;
         if (y != 0)
         {
             edges_sum += (2 * num_edges_corner) + (((y * 2) - 2) * num_edges_border);
-            edges_sum += ((img_width - 2) * (y - 1) * num_edges_inner)) + ((img_width - 2) * num_edges_border);
+            edges_sum += ((img_width - 2) * (y - 1) * num_edges_inner) + ((img_width - 2) * num_edges_border);
         }
 
         if (x != 0)
@@ -227,11 +256,19 @@ auto iwp::buildGraphAndRun(cv::Mat &marker, cv::Mat &mask, CONN conn)
         }
 
         row_offsets_ptr[v + 1] = edges_sum + num_ngbs;
-    }
+    };
 
     thrust::for_each(thrust::device, thrust::make_counting_iterator<vertex_t>(0),      // Begin: 0
                      thrust::make_counting_iterator<vertex_t>(img_width * img_height), // End: # of Vertices
                      set_row_offset);                                                  // Unary operation
+
+    thrust::for_each(thrust::device, thrust::make_counting_iterator<vertex_t>(0),      // Begin: 0
+                     thrust::make_counting_iterator<vertex_t>(img_width * img_height), // End: # of Vertices
+                     set_column_idx);                                                  // Unary operation
+
+    thrust::remove(column_idxs.begin(), column_idxs.end(), -1); // need to check this approach
+
+    gunrock::print::head(row_offsets, 20, "row_offsets");
 }
 
 template <typename vertex_t, typename edge_t, typename weight_t>
@@ -300,7 +337,7 @@ auto iwp::convertImgToGraph(cv::Mat &marker, cv::Mat &mask, thrust::device_vecto
     debug(csr.column_indices.size());
     debug(csr.nonzero_values.size());
 
-    // gunrock::print::head(Ap, 20, "Ap");
+    gunrock::print::head(Ap, 20, "Ap");
     // gunrock::print::head(Aj, 684, "Aj");
     // gunrock::print::head(Ax, 20, "Ax");
 
@@ -369,6 +406,8 @@ float iwp::runMorphRec(cv::Mat &marker, cv::Mat &mask)
     std::vector<vertex_t> initial = antiRasterScan<vertex_t>(marker, mask, conn);
 
     // debug(initial);
+
+    buildGraphAndRun<vertex_t, edge_t, weight_t>(marker, mask, conn);
 
     thrust::device_vector<vertex_t> markerValues(numVertices);
     thrust::device_vector<vertex_t> maskValues(numVertices);

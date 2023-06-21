@@ -48,6 +48,9 @@ namespace iwp
     template <typename vertex_t, typename edge_t, typename weight_t>
     auto convertImgToGraph(cv::Mat &marker, cv::Mat &mask, vertex_t *markerValues, vertex_t *maskValues, std::vector<vertex_t> initial, CONN conn);
 
+    template <typename vertex_t, typename edge_t, typename weight_t>
+    void buildGraphAndRun(cv::Mat &marker, cv::Mat &mask, CONN conn);
+
     float runMorphRec(cv::Mat &marker, cv::Mat &mask);
 
     template <typename vertex_t>
