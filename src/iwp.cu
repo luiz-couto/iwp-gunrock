@@ -155,7 +155,7 @@ std::vector<int> iwp::getPixelNeighbours(cv::Mat &img, pixel_coords coords, CONN
 }
 
 template <typename vertex_t, typename edge_t, typename weight_t>
-void iwp::buildGraphAndRun(cv::Mat &marker, cv::Mat &mask, CONN conn, std::vector<vertex_t> initial)
+void iwp::buildGraphAndRun(cv::Mat &marker, cv::Mat &mask, CONN conn)
 {
     debugLine("buildGraphAndRun");
     int img_width = marker.size().width;
@@ -315,7 +315,7 @@ void iwp::buildGraphAndRun(cv::Mat &marker, cv::Mat &mask, CONN conn, std::vecto
         values_ptr              // values
     );
 
-    float gpu_elapsed = run(G, mask_vec_int_ptr, img_width, img_height, initial, marker_vec_int_ptr);
+    float gpu_elapsed = run(G, mask_vec_int_ptr, img_width, img_height, marker_vec_int_ptr);
     debug(gpu_elapsed);
 
     saveMarkerImg(marker_vec_int, img_width, img_height);
@@ -342,6 +342,8 @@ float iwp::runMorphRec(cv::Mat &marker, cv::Mat &mask)
     using edge_t = int;
     using weight_t = int;
 
+    CONN conn = CONN_4;
+
     // cv::Rect myRect(0, 0, 4096, 2048);
 
     // cv::Mat marker_cropped = marker(myRect);
@@ -351,16 +353,10 @@ float iwp::runMorphRec(cv::Mat &marker, cv::Mat &mask)
 
     // int numVertices = marker.rows * marker.cols;
 
-    CONN conn = CONN_4;
-
     // rasterScan(marker, mask, conn);
     // std::vector<vertex_t> initial = antiRasterScan<vertex_t>(marker, mask, conn);
 
-    std::vector<vertex_t> initial;
-
-    // debug(initial);
-
-    buildGraphAndRun<vertex_t, edge_t, weight_t>(marker, mask, conn, initial);
+    buildGraphAndRun<vertex_t, edge_t, weight_t>(marker, mask, conn);
 
     // gunrock::print::head(markerValues, 20, "Marker");
 

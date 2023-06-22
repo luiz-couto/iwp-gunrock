@@ -52,7 +52,7 @@ namespace iwp
     void saveMarkerImg(thrust::device_vector<vertex_t> &markerValues, int img_width, int img_height);
 
     template <typename vertex_t, typename edge_t, typename weight_t>
-    void buildGraphAndRun(cv::Mat &marker, cv::Mat &mask, CONN conn, std::vector<vertex_t> initial);
+    void buildGraphAndRun(cv::Mat &marker, cv::Mat &mask, CONN conn);
 
     float runMorphRec(cv::Mat &marker, cv::Mat &mask);
 
@@ -62,11 +62,9 @@ namespace iwp
         vertex_t *mask;
         int img_width;
         int img_height;
-        std::vector<vertex_t> initial;
         param_t(vertex_t *_mask,
                 int _img_width,
-                int _img_height,
-                std::vector<vertex_t> _initial) : mask(_mask), img_width(_img_width), img_height(_img_height), initial(_initial) {}
+                int _img_height) : mask(_mask), img_width(_img_width), img_height(_img_height) {}
     };
 
     template <typename vertex_t>
@@ -267,7 +265,6 @@ namespace iwp
               typename graph_t::vertex_type *mask,   // Parameter
               const int img_width,                   // Parameter
               const int img_height,                  // Parameter
-              std::vector<int> initial,              // Parameter
               typename graph_t::vertex_type *marker, // Output
               std::shared_ptr<gunrock::gcuda::multi_context_t> context =
                   std::shared_ptr<gunrock::gcuda::multi_context_t>(
@@ -281,7 +278,7 @@ namespace iwp
         using param_type = param_t<vertex_t>;
         using result_type = result_t<vertex_t>;
 
-        param_type param(mask, img_width, img_height, initial);
+        param_type param(mask, img_width, img_height);
         result_type result(marker);
         // </user-defined>
 
