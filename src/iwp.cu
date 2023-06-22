@@ -353,8 +353,10 @@ float iwp::runMorphRec(cv::Mat &marker, cv::Mat &mask)
 
     CONN conn = CONN_4;
 
-    rasterScan(marker, mask, conn);
-    std::vector<vertex_t> initial = antiRasterScan<vertex_t>(marker, mask, conn);
+    // rasterScan(marker, mask, conn);
+    // std::vector<vertex_t> initial = antiRasterScan<vertex_t>(marker, mask, conn);
+
+    std::vector<vertex_t> initial;
 
     // debug(initial);
 

@@ -19,6 +19,12 @@ enum CONN
     CONN_8
 };
 
+enum RASTER_TYPE
+{
+    RASTER,
+    ANTI_RASTER
+};
+
 using pixel_coords = std::pair<int, int>;
 
 template <typename S>
@@ -103,122 +109,123 @@ namespace iwp
 
         void prepare_frontier(frontier_t *f, gunrock::gcuda::multi_context_t &context) override
         {
-
             debugLine("Prepare Frontier");
 
-            // auto P = this->get_problem();
-            // auto G = P->get_graph();
-            // vertex_t *marker = P->result.marker;
-            // vertex_t *mask = P->param.mask;
-
-            // int width = P->param.img_width;
-            // int height = P->param.img_height;
-
-            // debugLine("AAAAAAAAA");
-
-            // thrust::device_vector<vertex_t> device_frontier(G.get_number_of_vertices(), -1);
-            // vertex_t *f_pointer = device_frontier.data().get();
-
-            // debugLine("BBBBBBB");
-
-            // auto update_pixel = [G, marker, mask, width, height] __device__(vertex_t const &v)
-            // {
-            //     // printf("v: %d, ", v);
-            //     auto startEdge = G.get_starting_edge(v);
-            //     auto numberNgbs = G.get_number_of_neighbors(v);
-            //     vertex_t greater = marker[v];
-
-            //     for (auto e = startEdge; e < startEdge + numberNgbs; e++)
-            //     {
-            //         vertex_t ngb = G.get_destination_vertex(e);
-
-            //         if (marker[ngb] > greater)
-            //             greater = marker[ngb];
-            //     }
-
-            //     if (greater > mask[v])
-            //         greater = mask[v];
-
-            //     gunrock::math::atomic::exch(&marker[v], greater);
-            // };
-
-            // auto raster_scan = [G, marker, mask, width, height, update_pixel] __device__(vertex_t const &x)
-            // {
-            //     for (int v = 0; v < width * height; v++)
-            //     {
-            //         update_pixel(v);
-            //     }
-            // };
-
-            // auto fill_frontier = [G, marker, mask, f_pointer, update_pixel, width, height] __device__(vertex_t const &v)
-            // {
-            //     update_pixel(v);
-
-            //     edge_t startEdge = G.get_starting_edge(v);
-            //     auto numberNgbs = G.get_number_of_neighbors(v);
-
-            //     for (edge_t e = startEdge; e < startEdge + numberNgbs; e++)
-            //     {
-            //         vertex_t ngb = G.get_destination_vertex(e);
-            //         if ((marker[ngb] < marker[v]) && (marker[ngb] < mask[ngb]))
-            //         {
-            //             // printf("v: %d, ngb: %d", v, ngb);
-            //             f_pointer[ngb] = 1;
-            //         }
-            //     }
-            // };
-
-            // debug(G.get_number_of_vertices());
-
-            // auto policy = context.get_context(0)->execution_policy();
-
-            // // For each (count from 0...#_of_Vertices), and perform
-            // // the operation called update_pixel.
-            // thrust::for_each(policy,
-            //                  thrust::make_counting_iterator<vertex_t>(0),                          // Begin: 0
-            //                  thrust::make_counting_iterator<vertex_t>(G.get_number_of_vertices()), // End: # of Vertices
-            //                  update_pixel                                                          // Unary operation
-            // );
-
-            // cudaDeviceSynchronize();
-
-            // // DISCOVER A WAY TO DO IT IN A ANTI-RASTER MANNER
-            // thrust::for_each(policy,
-            //                  thrust::make_counting_iterator<vertex_t>(0),                          // Begin: 0
-            //                  thrust::make_counting_iterator<vertex_t>(G.get_number_of_vertices()), // End: # of Vertices
-            //                  fill_frontier                                                         // Unary operation
-            // );
-
-            // cudaDeviceSynchronize();
-
-            // debugLine("UHUUUULL");
-
-            // thrust::host_vector<vertex_t> host_frontier(G.get_number_of_vertices());
-            // thrust::copy(device_frontier.begin(), device_frontier.end(), host_frontier.begin());
-            // // thrust::host_vector<vertex_t> host_frontier = device_frontier;
-            // // std::map<int, bool> entered_pixels;
-            // // debug(host_frontier[359575]);
-            // for (int i = 0; i < G.get_number_of_vertices(); i++)
-            // {
-            //     if (host_frontier[i] != -1)
-            //     {
-            //         f->push_back(i);
-            //     }
-            // }
-
             auto P = this->get_problem();
-            std::vector<vertex_t> initial = P->param.initial;
+            auto G = P->get_graph();
 
-            if (f->get_capacity() < initial.size())
-                f->reserve(initial.size());
+            vertex_t *marker = P->result.marker;
+            vertex_t *mask = P->param.mask;
+            int width = P->param.img_width;
+            int height = P->param.img_height;
+
+            int num_parts = 64;
+
+            auto update_pixel = [G, marker, mask, width, height] __device__(vertex_t const &v, RASTER_TYPE r_type)
+            {
+                // printf("v: %d, ", v);
+                auto startEdge = G.get_starting_edge(v);
+                auto numberNgbs = G.get_number_of_neighbors(v);
+                vertex_t greater = marker[v];
+
+                for (auto e = startEdge; e < startEdge + numberNgbs; e++)
+                {
+                    vertex_t ngb = G.get_destination_vertex(e);
+
+                    if (r_type == RASTER && ngb > v)
+                    {
+                        continue;
+                    }
+
+                    if (r_type == ANTI_RASTER && ngb < v)
+                    {
+                        continue;
+                    }
+
+                    if (marker[ngb] > greater)
+                        greater = marker[ngb];
+                }
+
+                if (greater > mask[v])
+                    greater = mask[v];
+
+                gunrock::math::atomic::exch(&marker[v], greater);
+            };
+
+            auto part_1 = [G, marker, mask, width, height, num_parts, update_pixel] __device__(int const &c)
+            {
+                int part_height = height / num_parts;
+                int begin = c * part_height * width;
+                int end = (((c + 1) * part_height) + 1) * width;
+
+                if (c == num_parts - 1)
+                {
+                    end -= 1 * width;
+                }
+
+                for (int v = begin; v < end; v++)
+                {
+                    update_pixel(v, RASTER);
+                }
+            };
+
+            auto part_2 = [G, marker, mask, width, height, num_parts, update_pixel] __device__(int const &c)
+            {
+                int real_c = abs(c - (num_parts - 1));
+                int part_height = height / num_parts;
+                int begin = real_c * part_height * width;
+                int end = (((real_c + 1) * part_height) + 1) * width;
+
+                if (real_c == num_parts - 1)
+                {
+                    end -= 1 * width;
+                }
+
+                for (int v = end - 1; v >= begin; v--)
+                {
+                    update_pixel(v, ANTI_RASTER);
+                }
+            };
+
+            thrust::device_vector<vertex_t> device_frontier(width * height, -1);
+            vertex_t *f_pointer = device_frontier.data().get();
+
+            auto part_3 = [G, marker, mask, f_pointer] __device__(int const &v)
+            {
+                edge_t startEdge = G.get_starting_edge(v);
+                auto numberNgbs = G.get_number_of_neighbors(v);
+
+                for (edge_t e = startEdge; e < startEdge + numberNgbs; e++)
+                {
+                    vertex_t ngb = G.get_destination_vertex(e);
+                    if ((marker[ngb] < marker[v]) && (marker[ngb] < mask[ngb]))
+                    {
+                        // printf("v: %d, ngb: %d", v, ngb);
+                        f_pointer[v] = v;
+                    }
+                }
+            };
+
+            thrust::for_each(thrust::device, thrust::make_counting_iterator<vertex_t>(0), thrust::make_counting_iterator<vertex_t>(num_parts), part_1);
+            cudaDeviceSynchronize();
+
+            thrust::for_each(thrust::device, thrust::make_counting_iterator<vertex_t>(0), thrust::make_counting_iterator<vertex_t>(num_parts), part_2);
+            cudaDeviceSynchronize();
+
+            thrust::for_each(thrust::device, thrust::make_counting_iterator<vertex_t>(0), thrust::make_counting_iterator<vertex_t>(G.get_number_of_vertices()), part_3);
+            cudaDeviceSynchronize();
+
+            int result = thrust::count(thrust::device, device_frontier.begin(), device_frontier.end(), -1);
+
+            thrust::remove(device_frontier.begin(), device_frontier.end(), -1);
+            device_frontier.resize((width * height) - result);
+
+            if (f->get_capacity() < device_frontier.size())
+                f->reserve(device_frontier.size());
 
             // Set the new number of elements.
-            f->set_number_of_elements(initial.size());
-
-            thrust::device_vector<vertex_t> dv(initial);
-            thrust::copy(dv.begin(), dv.end(), f->begin());
-
-            cudaDeviceSynchronize();
+            f->set_number_of_elements(device_frontier.size());
+            thrust::copy(device_frontier.begin(), device_frontier.end(), f->begin());
 
             debug(f->get_number_of_elements());
         }
