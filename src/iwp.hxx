@@ -117,7 +117,8 @@ namespace iwp
             int width = P->param.img_width;
             int height = P->param.img_height;
 
-            int num_parts = 64;
+            int num_parts = 256;
+            int num_scans = 2;
 
             auto update_pixel = [G, marker, mask, width, height] __device__(vertex_t const &v, RASTER_TYPE r_type)
             {
@@ -204,11 +205,14 @@ namespace iwp
                 }
             };
 
-            thrust::for_each(thrust::device, thrust::make_counting_iterator<vertex_t>(0), thrust::make_counting_iterator<vertex_t>(num_parts), part_1);
-            cudaDeviceSynchronize();
+            for (int i = 0; i < num_scans; i++)
+            {
+                thrust::for_each(thrust::device, thrust::make_counting_iterator<vertex_t>(0), thrust::make_counting_iterator<vertex_t>(num_parts), part_1);
+                cudaDeviceSynchronize();
 
-            thrust::for_each(thrust::device, thrust::make_counting_iterator<vertex_t>(0), thrust::make_counting_iterator<vertex_t>(num_parts), part_2);
-            cudaDeviceSynchronize();
+                thrust::for_each(thrust::device, thrust::make_counting_iterator<vertex_t>(0), thrust::make_counting_iterator<vertex_t>(num_parts), part_2);
+                cudaDeviceSynchronize();
+            }
 
             thrust::for_each(thrust::device, thrust::make_counting_iterator<vertex_t>(0), thrust::make_counting_iterator<vertex_t>(G.get_number_of_vertices()), part_3);
             cudaDeviceSynchronize();
