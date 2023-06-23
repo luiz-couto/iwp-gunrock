@@ -1,0 +1,6 @@
+[submodule "externals/gunrock"]
+	path = externals/gunrock
+	url = git@github.com:gunrock/gunrock.git
+[submodule "externals/opencv"]
+	path = externals/opencv
+	url = git@github.com:opencv/opencv.git
