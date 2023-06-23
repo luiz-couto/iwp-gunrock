@@ -255,7 +255,7 @@ namespace iwp
                 return false;
             };
 
-            gunrock::operators::advance::execute<gunrock::operators::load_balance_t::block_mapped>(G, E, advance_op, context);
+            gunrock::operators::advance::execute<gunrock::operators::load_balance_t::thread_mapped>(G, E, advance_op, context);
         }
 
     }; // struct enactor_t
