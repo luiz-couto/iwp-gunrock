@@ -333,7 +333,7 @@ void iwp::saveMarkerImg(thrust::device_vector<vertex_t> &markerValues, int img_w
         marker.at<uchar>(p.first, p.second) = hostMarker[i];
     }
 
-    cv::imwrite("final_marker.png", marker);
+    cv::imwrite("../results/final_marker.png", marker);
 }
 
 float iwp::runMorphRec(cv::Mat &marker, cv::Mat &mask)
