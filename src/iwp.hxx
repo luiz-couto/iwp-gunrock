@@ -241,8 +241,6 @@ namespace iwp
             vertex_t *marker = P->result.marker;
             vertex_t *mask = P->param.mask;
 
-            // auto iteration = this->iteration;
-
             auto advance_op = [marker, mask] __host__ __device__(
                                   vertex_t const &source,   // ... source
                                   vertex_t const &neighbor, // neighbor
@@ -252,9 +250,11 @@ namespace iwp
             {
                 if (marker[neighbor] < marker[source] && mask[neighbor] != marker[neighbor])
                 {
-                    vertex_t min = std::min(marker[source], mask[neighbor]);
-                    gunrock::math::atomic::exch(&marker[neighbor], min);
-                    return true;
+                    vertex_t old_val = gunrock::math::atomic::max(&marker[neighbor], std::min(marker[source], mask[neighbor]));
+                    if (old_val < std::min(marker[source], mask[neighbor]))
+                    {
+                        return true;
+                    }
                 }
                 return false;
             };
