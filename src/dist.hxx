@@ -15,6 +15,21 @@
 #define debugLine(i) std::cout << "PASSOU AQUIIII" \
                                << " --- " << i << std::endl;
 
+__host__ __device__ constexpr int euclideanDistance(int v1, int v2, int img_width)
+{
+    double x1 = (double)(v1 % img_width);
+    double y1 = (double)(v1 / img_width);
+
+    double x2 = (double)(v2 % img_width);
+    double y2 = (double)(v2 / img_width);
+
+    double x = x1 - x2; // calculating number to square in next step
+    double y = y1 - y2;
+    double dist = sqrt(pow(x, 2) + pow(y, 2));
+
+    return round(dist);
+}
+
 namespace iwp
 {
 
@@ -92,7 +107,7 @@ namespace iwp
 
                     if (bin_img[v] == BG)
                     {
-                        vr_diagram[v] == v;
+                        vr_diagram[v] = v;
 
                         edge_t startEdge = G.get_starting_edge(v);
                         auto numberNgbs = G.get_number_of_neighbors(v);
@@ -138,33 +153,16 @@ namespace iwp
 
                 vertex_t *vr_diagram = P->result.vr_diagram;
                 vertex_t *bin_img = P->param.bin_img;
+                int img_width = P->param.img_width;
 
-                int euclideanDistance = [img_width] __host__ __device__(vertex_t v1, vertex_t v2)
-                {
-                    double x1 = (double)(v1 % img_width);
-                    double y1 = (double)(v1 / img_width);
-
-                    double x2 = (double)(v2 % img_width);
-                    double y2 = (double)(v2 / img_width);
-
-                    double x = x1 - x2; // calculating number to square in next step
-                    double y = y1 - y2;
-                    double dist;
-
-                    dist = pow(x, 2) + pow(y, 2); // calculating Euclidean distance
-                    dist = sqrt(dist);
-
-                    return round(dist);
-                };
-
-                auto advance_op = [vr_diagram, bin_img, euclideanDistance] __host__ __device__(
+                auto advance_op = [vr_diagram, bin_img, img_width] __host__ __device__(
                                       vertex_t const &source,   // ... source
                                       vertex_t const &neighbor, // neighbor
                                       edge_t const &edge,       // edge
                                       weight_t const &weight    // weight (tuple).
                                       ) -> bool
                 {
-                    if (euclideanDistance(neighbor, vr_diagram[source]) < euclideanDistance(neighbor, vr_diagram[neighbor]))
+                    if (euclideanDistance(neighbor, vr_diagram[source], img_width) < euclideanDistance(neighbor, vr_diagram[neighbor], img_width))
                     {
                         vr_diagram[neighbor] = vr_diagram[source];
                         return true;
