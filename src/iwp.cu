@@ -1,4 +1,7 @@
 #include "iwp.hxx"
+#include "img_csr.hxx"
+#include "dist.hxx"
+#include <chrono>
 
 int iwp::get1DCoords(cv::Mat &img, pixel_coords coords)
 {
@@ -157,6 +160,7 @@ std::vector<int> iwp::getPixelNeighbours(cv::Mat &img, pixel_coords coords, CONN
 template <typename vertex_t, typename edge_t, typename weight_t>
 void iwp::buildGraphAndRun(cv::Mat &marker, cv::Mat &mask, CONN conn)
 {
+    auto beg = std::chrono::high_resolution_clock::now();
     debugLine("buildGraphAndRun");
     int img_width = marker.size().width;
     int img_height = marker.size().height;
@@ -296,12 +300,17 @@ void iwp::buildGraphAndRun(cv::Mat &marker, cv::Mat &mask, CONN conn)
 
     thrust::for_each(thrust::device, thrust::make_counting_iterator<vertex_t>(0),      // Begin: 0
                      thrust::make_counting_iterator<vertex_t>(img_width * img_height), // End: # of Vertices
-                     convert_uchar_to_int);                                            // Unary operation
+                     convert_uchar_to_int);
 
     cudaDeviceSynchronize();
 
     thrust::remove(column_idxs.begin(), column_idxs.end(), -1);
     column_idxs.resize(num_edges);
+
+    auto end = std::chrono::high_resolution_clock::now();
+
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - beg);
+    debug(duration.count());
 
     // gunrock::print::head(row_offsets, 20, "row_offsets");
     // gunrock::print::head(column_idxs, 20, "column_idxs");
@@ -325,7 +334,7 @@ template <typename vertex_t>
 void iwp::saveMarkerImg(thrust::device_vector<vertex_t> &markerValues, int img_width, int img_height)
 {
     thrust::host_vector<vertex_t> hostMarker = markerValues;
-    cv::Mat marker = cv::Mat(img_width, img_height, CV_8UC1, 8);
+    cv::Mat marker = cv::Mat(img_height, img_width, CV_8UC1, 8);
 
     for (int i = 0; i < hostMarker.size(); i++)
     {
@@ -336,29 +345,98 @@ void iwp::saveMarkerImg(thrust::device_vector<vertex_t> &markerValues, int img_w
     cv::imwrite("../results/final_marker.png", marker);
 }
 
+template <typename vertex_t>
+void iwp::saveDistTransformResult(thrust::device_vector<vertex_t> &vr_diagram, int img_width, int img_height)
+{
+    thrust::host_vector<vertex_t> hostVR = vr_diagram;
+    cv::Mat result = cv::Mat(img_height, img_width, CV_8UC1, 8);
+
+    for (int i = 0; i < hostVR.size(); i++)
+    {
+        pixel_coords p = get2DCoords(img_width, i);
+        result.at<uchar>(p.second, p.first) = euclideanDistance(i, hostVR[i], img_width);
+    }
+
+    cv::imwrite("../results/dist_result.png", result);
+}
+
 float iwp::runMorphRec(cv::Mat &marker, cv::Mat &mask)
 {
+    auto beg = std::chrono::high_resolution_clock::now();
+
     using vertex_t = int;
     using edge_t = int;
     using weight_t = int;
 
     CONN conn = CONN_4;
+    int img_width = marker.size().width;
+    int img_height = marker.size().height;
 
-    // cv::Rect myRect(0, 0, 4096, 2048);
-
-    // cv::Mat marker_cropped = marker(myRect);
-    // cv::Mat mask_cropped = mask(myRect);
-
-    // debug(marker_cropped.rows);
-
-    // int numVertices = marker.rows * marker.cols;
-
-    // rasterScan(marker, mask, conn);
-    // std::vector<vertex_t> initial = antiRasterScan<vertex_t>(marker, mask, conn);
+    // ImageCSR *ic = new ImageCSR(marker.size().width, marker.size().height, conn);
 
     buildGraphAndRun<vertex_t, edge_t, weight_t>(marker, mask, conn);
 
-    // gunrock::print::head(markerValues, 20, "Marker");
+    auto end = std::chrono::high_resolution_clock::now();
 
-    // std::cout << "GPU Elapsed: " << gpu_elapsed << std::endl;
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - beg);
+    log("Final Time", duration.count());
+}
+
+void iwp::runDistTransform(cv::Mat &bin_img)
+{
+    using vertex_t = int;
+    using edge_t = int;
+    using weight_t = int;
+
+    CONN conn = CONN_8;
+    int img_width = bin_img.size().width;
+    int img_height = bin_img.size().height;
+
+    ImageCSR *ic = new ImageCSR(img_width, img_height, conn);
+
+    uchar *bin_img_ptr = bin_img.ptr();
+    thrust::device_vector<uchar> bin_img_vec(img_width * img_height);
+    uchar *bin_img_vec_uchar_ptr = bin_img_vec.data().get();
+    thrust::copy(bin_img_ptr, bin_img_ptr + (img_width * img_height), bin_img_vec.begin());
+    thrust::device_vector<vertex_t> bin_img_vec_int(img_width * img_height);
+    vertex_t *bin_img_vec_int_ptr = bin_img_vec_int.data().get();
+
+    auto convert_uchar_to_int = [bin_img_vec_uchar_ptr, bin_img_vec_int_ptr, img_width] __device__(vertex_t const &v)
+    {
+        int x = v / img_width;
+        int y = v % img_width;
+
+        int coord = (x * img_width) + y;
+
+        int value = (int)bin_img_vec_uchar_ptr[coord];
+        if ((int)bin_img_vec_uchar_ptr[coord] != 0)
+        {
+            value = 1;
+        }
+        bin_img_vec_int_ptr[v] = value;
+    };
+
+    thrust::for_each(thrust::device, thrust::make_counting_iterator<vertex_t>(0),      // Begin: 0
+                     thrust::make_counting_iterator<vertex_t>(img_width * img_height), // End: # of Vertices
+                     convert_uchar_to_int);
+
+    cudaDeviceSynchronize();
+
+    thrust::device_vector<vertex_t> vr_diagram(img_width * img_height, INT_MAX);
+
+    auto G = gunrock::graph::build::from_csr<gunrock::memory::memory_space_t::device, gunrock::graph::view_t::csr>(
+        img_width * img_height,       // rows
+        img_width * img_height,       // columns
+        ic->num_edges,                // nonzeros
+        ic->row_offsets.data().get(), // row_offsets
+        ic->column_idxs.data().get(), // column_indices
+        ic->values.data().get()       // values
+    );
+
+    float gpu_elapsed = dist::run(G, bin_img_vec_int_ptr, img_width, img_height, vr_diagram.data().get());
+    debug(gpu_elapsed);
+
+    // gunrock::print::head(vr_diagram, 20, "vr_diagram");
+
+    saveDistTransformResult(vr_diagram, img_width, img_height);
 }

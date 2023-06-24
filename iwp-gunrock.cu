@@ -16,112 +16,6 @@
 #define debugLine(i) std::cout << "PASSOU AQUIIII" \
                                << " --- " << i << std::endl;
 
-using pixel_coords = std::pair<int, int>;
-
-int get1DCoords(cv::Mat &img, pixel_coords coords)
-{
-    return (coords.second * img.size().width) + coords.first;
-}
-
-pixel_coords get2DCoords(int width, int coord)
-{
-    return pixel_coords(coord % width, coord / width);
-}
-
-namespace fs = std::filesystem;
-
-void rasterScan(cv::Mat &marker, cv::Mat &mask)
-{
-    for (int i = 0; i < marker.rows; i++)
-    {
-        for (int j = 0; j < marker.cols; j++)
-        {
-            int n_plus_neighbors[4][2] = {
-                {j - 1, i},
-                {j - 1, i - 1},
-                {j, i - 1},
-                {j + 1, i - 1}};
-
-            int p_value = (int)marker.at<uchar>(j, i);
-            int m_value = (int)mask.at<uchar>(j, i);
-
-            for (int n = 0; n < 4; n++)
-            {
-                if (n_plus_neighbors[n][0] < 0 ||
-                    n_plus_neighbors[n][0] > marker.cols - 1 ||
-                    n_plus_neighbors[n][1] < 0 ||
-                    n_plus_neighbors[n][1] > marker.rows - 1) // checking out-of-bounds
-                {
-                    continue;
-                }
-
-                int n_value = (int)marker.at<uchar>(n_plus_neighbors[n][0], n_plus_neighbors[n][1]);
-                p_value = std::max(p_value, n_value);
-            }
-
-            p_value = std::min(p_value, m_value);
-            marker.at<uchar>(j, i) = p_value;
-        }
-    }
-}
-
-void antiRasterScan(cv::Mat &marker, cv::Mat &mask)
-{
-    std::vector<int> fifo;
-    for (int i = 0; i < marker.rows; i++)
-    {
-        for (int j = 0; j < marker.cols; j++)
-        {
-            int n_minus_neighbors[4][2] = {
-                {j - 1, i + 1},
-                {j, i + 1},
-                {j + 1, i + 1},
-                {j + 1, i}};
-
-            int p_value = (int)marker.at<uchar>(j, i);
-            int m_value = (int)mask.at<uchar>(j, i);
-
-            for (int n = 0; n < 4; n++)
-            {
-                if (n_minus_neighbors[n][0] < 0 ||
-                    n_minus_neighbors[n][0] > marker.cols - 1 ||
-                    n_minus_neighbors[n][1] < 0 ||
-                    n_minus_neighbors[n][1] > marker.rows - 1) // checking out-of-bounds
-                {
-                    continue;
-                }
-
-                int n_value = (int)marker.at<uchar>(n_minus_neighbors[n][0], n_minus_neighbors[n][1]);
-                p_value = std::max(p_value, n_value);
-            }
-
-            p_value = std::min(p_value, m_value);
-            marker.at<uchar>(j, i) = p_value;
-
-            for (int n = 0; n < 4; n++)
-            {
-                if (n_minus_neighbors[n][0] < 0 ||
-                    n_minus_neighbors[n][0] > marker.cols - 1 ||
-                    n_minus_neighbors[n][1] < 0 ||
-                    n_minus_neighbors[n][1] > marker.rows - 1) // checking out-of-bounds
-                {
-                    continue;
-                }
-
-                int n_value = (int)marker.at<uchar>(n_minus_neighbors[n][0], n_minus_neighbors[n][1]);
-                int m_n_value = (int)mask.at<uchar>(n_minus_neighbors[n][0], n_minus_neighbors[n][1]);
-
-                if (n_value < p_value && n_value < m_n_value)
-                {
-                    fifo.push_back(get1DCoords(marker, pixel_coords(j, i)));
-                }
-            }
-        }
-    }
-
-    debug(fifo.size());
-}
-
 int main()
 {
     // using vertex_t = int;
@@ -147,6 +41,27 @@ int main()
         std::cout << "Could not read the image: " << mask_path << std::endl;
         return 1;
     }
+
+    // std::string bin_img_path = cv::samples::findFile("../../imgs/dist/bin_img.png");
+    // cv::Mat bin_img = cv::imread(bin_img_path, cv::IMREAD_GRAYSCALE);
+    // if (bin_img.empty())
+    // {
+    //     std::cout << "Could not read the image: " << bin_img_path << std::endl;
+    //     return 1;
+    // }
+
+    // auto beg = std::chrono::high_resolution_clock::now();
+    // // ImageCSR *ic = new ImageCSR(marker.size().width, marker.size().height, CONN_4);
+
+    // cudaDeviceSynchronize();
+
+    // auto end = std::chrono::high_resolution_clock::now();
+
+    // auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - beg);
+    // debug(duration.count());
+
+    // gunrock::print::head(ic->row_offsets, 20, "row_offsets");
+    // gunrock::print::head(ic->column_idxs, 20, "column_idxs");
 
     // rasterScan(marker, mask);
     // antiRasterScan(marker, mask);
@@ -185,9 +100,10 @@ int main()
 
     // std::cout << G.get_number_of_edges() << std::endl;
 
-    // std::cout << marker << std::endl;
+    // std::cout << bin_img << std::endl;
 
     iwp::runMorphRec(marker, mask);
+    // iwp::runDistTransform(bin_img);
 
     return 0;
 }

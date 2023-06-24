@@ -8,6 +8,7 @@
 #include <map>
 #include <algorithm> // std::min
 
+#define log(msg, x) std::cout << msg << ": " << #x << " = " << x << std::endl;
 #define debug(x) std::cout << #x << " = " << x << std::endl;
 #define debug2(x, y) std::cout << #x << " = " << x << " --- " << #y << " = " << y << "\n";
 #define debugLine(i) std::cout << "PASSOU AQUIIII" \
@@ -51,10 +52,14 @@ namespace iwp
     template <typename vertex_t>
     void saveMarkerImg(thrust::device_vector<vertex_t> &markerValues, int img_width, int img_height);
 
+    template <typename vertex_t>
+    void saveDistTransformResult(thrust::device_vector<vertex_t> &vr_diagram, int img_width, int img_height);
+
     template <typename vertex_t, typename edge_t, typename weight_t>
     void buildGraphAndRun(cv::Mat &marker, cv::Mat &mask, CONN conn);
 
     float runMorphRec(cv::Mat &marker, cv::Mat &mask);
+    void runDistTransform(cv::Mat &bin_img);
 
     template <typename vertex_t>
     struct param_t
