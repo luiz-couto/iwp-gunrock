@@ -1,5 +1,6 @@
 #include "iwp.hxx"
 #include "img_csr.hxx"
+#include "mr.hxx"
 #include "dist.hxx"
 #include <chrono>
 
@@ -324,7 +325,7 @@ void iwp::buildGraphAndRun(cv::Mat &marker, cv::Mat &mask, CONN conn)
         values_ptr              // values
     );
 
-    float gpu_elapsed = run(G, mask_vec_int_ptr, img_width, img_height, marker_vec_int_ptr);
+    float gpu_elapsed = mr::run(G, mask_vec_int_ptr, img_width, img_height, marker_vec_int_ptr);
     debug(gpu_elapsed);
 
     saveMarkerImg(marker_vec_int, img_width, img_height);
